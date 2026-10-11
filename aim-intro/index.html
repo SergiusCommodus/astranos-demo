@@ -1,0 +1,2247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AIM Intro</title>
+<meta name="theme-color" content="#14110F">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Cinzel:wght@500;700;900&family=Cormorant+Garamond:wght@500;600&display=swap">
+<style>
+  /* AIM intro: one canvas for the motion comic, DOM caption boxes for the loader UI. */
+  :root {
+    --sand: #E8C99A;
+    --sand-shadow: #B8925E;
+    --red: #A11D1D;
+    --red-shadow: #5E0F0F;
+    --gold: #E3B23C;
+    --iron: #9AA3AD;
+    --iron-shadow: #4A5058;
+    --ink: #111111;
+    --bg: #14110F;
+    --display: "Cinzel", "Trajan Pro", Georgia, serif;
+    --body: "Cormorant Garamond", Georgia, serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; margin: 0; background: var(--bg); overflow: hidden; }
+  body { font-family: var(--body); color: var(--sand); -webkit-font-smoothing: antialiased; }
+
+  #intro { position: fixed; inset: 0; z-index: 2; }
+  #scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #intro.is-static #scene { opacity: 0; transition: opacity 1.2s ease; }
+  #intro.is-static.is-in #scene { opacity: 1; }
+  #intro.is-out { opacity: 0; transition: opacity .8s ease; pointer-events: none; }
+
+  /* Aged paper grain over everything; the tile is generated at startup. */
+  .grain { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: overlay; opacity: .55; background-size: 256px 256px; }
+
+  /* Comic caption box */
+  .cap {
+    position: absolute;
+    background: var(--sand);
+    color: var(--ink);
+    border: 2.5px solid var(--ink);
+    box-shadow: 4px 4px 0 var(--ink);
+    font-family: var(--display);
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    transition: opacity .45s ease, transform .45s ease;
+  }
+  .cap[data-hidden="true"] { opacity: 0; pointer-events: none; transform: translateY(6px); }
+
+  .cap-btn {
+    top: max(16px, env(safe-area-inset-top));
+    right: max(16px, env(safe-area-inset-right));
+    font-size: 11.5px;
+    padding: 7px 11px 6px;
+    cursor: pointer;
+  }
+  .cap-btn:hover { background: #F3DDB6; }
+  .cap-btn:active { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--ink); }
+  .cap-btn:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+  #fullBtn { top: calc(max(16px, env(safe-area-inset-top)) + 42px); }
+
+  #loader {
+    left: 50%;
+    bottom: max(18px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    width: min(460px, calc(100% - 36px));
+    box-sizing: border-box;
+    padding: 9px 14px 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 14px;
+    row-gap: 6px;
+    align-items: center;
+  }
+  #status { font-size: 11.5px; letter-spacing: .1em; min-height: 1.35em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .25s ease; }
+  #status.is-swapping { opacity: 0; }
+  #pct {
+    grid-column: 2; grid-row: 1 / span 2;
+    font-size: 25px; font-weight: 900; letter-spacing: .02em;
+    font-variant-numeric: tabular-nums lining-nums;
+    min-width: 3.4ch; text-align: right; color: var(--red-shadow);
+  }
+  #track { display: block; width: 100%; height: 12px; overflow: visible; }
+
+  #slogan {
+    left: 0; top: 0;
+    padding: 8px 14px 7px;
+    font-size: clamp(12px, 1.5vw, 16px);
+    letter-spacing: .16em;
+    white-space: nowrap;
+  }
+  #title {
+    top: max(16px, env(safe-area-inset-top));
+    left: max(16px, env(safe-area-inset-left));
+    padding: 8px 14px 9px;
+    background: var(--ink);
+    color: var(--sand);
+    border-color: var(--gold);
+    box-shadow: 4px 4px 0 #000;
+  }
+  #title b {
+    display: block;
+    font-weight: 900;
+    font-size: 26px;
+    letter-spacing: .22em;
+    color: var(--gold);
+    line-height: 1;
+  }
+  #title span { display: block; font-size: 9.5px; letter-spacing: .24em; margin-top: 5px; color: var(--sand); }
+
+  /* Placeholder dashboard revealed by the ink wipe. Replace with the real app. */
+  #dash {
+    position: fixed; inset: 0; z-index: 1;
+    background:
+      radial-gradient(ellipse at 15% 0%, rgba(227, 178, 60, .10), transparent 50%),
+      var(--bg);
+    color: #EADBC2;
+    overflow: auto;
+    box-sizing: border-box;
+    padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 32px max(20px, env(safe-area-inset-left));
+  }
+  #dash[hidden] { display: none; }
+  .dash-wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 22px; }
+  .dash-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid rgba(227, 178, 60, .25); padding-bottom: 14px; }
+  .dash-logo { font-family: var(--display); font-weight: 900; font-size: 24px; letter-spacing: .24em; color: var(--gold); }
+  .dash-logo small { display: block; font-size: 9px; letter-spacing: .26em; color: #B9A88E; font-weight: 700; margin-top: 3px; }
+  .dash-nav { display: flex; gap: 18px; flex-wrap: wrap; font-family: var(--display); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #B9A88E; }
+  .dash-nav span:first-child { color: var(--gold); }
+  .dash-btn { font: 700 11px/1 var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); background: transparent; border: 1px solid rgba(227, 178, 60, .55); padding: 9px 12px; cursor: pointer; }
+  .dash-btn:hover { background: rgba(227, 178, 60, .08); }
+  .dash-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .dash-head h1 { margin: 4px 0 0; font-family: var(--display); font-weight: 700; font-size: clamp(22px, 3.4vw, 32px); letter-spacing: .04em; color: #F2E4CC; text-wrap: balance; }
+  .eyebrow { margin: 0; font-family: var(--display); font-size: 10.5px; letter-spacing: .2em; text-transform: uppercase; color: #9E8E76; }
+  .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .card { background: #1C1815; border: 1px solid #2E2822; padding: 18px; min-width: 0; }
+  .card h2 { margin: 0 0 10px; font-family: var(--display); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: #9E8E76; font-weight: 700; }
+  .big { font-family: var(--display); font-size: 30px; font-weight: 700; color: #F2E4CC; font-variant-numeric: tabular-nums; }
+  .delta { font-size: 16px; color: #8FBF7A; margin-left: 8px; }
+  .alloc { display: flex; height: 10px; margin: 14px 0 10px; }
+  .alloc i { display: block; height: 100%; }
+  .legend { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .card p { margin: 0; font-size: 17px; line-height: 1.45; color: #CDBEA5; }
+</style>
+</head>
+<body>
+  <section id="dash" hidden aria-label="AIM dashboard">
+    <div class="dash-wrap">
+      <div class="dash-top">
+        <div class="dash-logo">AIM<small>Artemis Investment Metrics</small></div>
+        <nav class="dash-nav" aria-label="Sections"><span>Overview</span><span>Portfolio</span><span>Planning</span><span>Insights</span></nav>
+        <button class="dash-btn" id="replayBtn" type="button">Replay intro</button>
+      </div>
+      <div class="dash-head">
+        <p class="eyebrow">Placeholder dashboard · sample data</p>
+        <h1>Welcome back. Your positions are in formation.</h1>
+      </div>
+      <div class="dash-grid">
+        <div class="card">
+          <h2>Net worth</h2>
+          <div class="big">$1,284,600<span class="delta">+0.8%</span></div>
+          <svg viewBox="0 0 240 48" width="100%" height="48" aria-hidden="true"><path d="M0 40 L20 36 L40 38 L60 30 L80 32 L100 24 L120 27 L140 19 L160 22 L180 14 L200 16 L220 9 L240 6" fill="none" stroke="#E3B23C" stroke-width="2"/></svg>
+        </div>
+        <div class="card">
+          <h2>Allocation</h2>
+          <div class="alloc" aria-hidden="true"><i style="width:58%;background:#E3B23C"></i><i style="width:27%;background:#A11D1D"></i><i style="width:9%;background:#9AA3AD"></i><i style="width:6%;background:#B8925E"></i></div>
+          <div class="legend"><span>Equities</span><span>58%</span><span>Bonds</span><span>27%</span><span>Cash</span><span>9%</span><span>Alternatives</span><span>6%</span></div>
+        </div>
+        <div class="card">
+          <h2>Risk check</h2>
+          <p>Drawdown stays inside your target band. Three volatility alerts were absorbed this week without a rebalance.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="intro">
+    <canvas id="scene" aria-hidden="true"></canvas>
+    <div class="grain" id="grain" aria-hidden="true"></div>
+
+    <div class="cap" id="title" data-hidden="true" aria-hidden="true"><b>AIM</b><span>Artemis Investment Metrics</span></div>
+    <div class="cap" id="slogan" data-hidden="true">Aim for Success</div>
+    <button class="cap cap-btn" id="skipBtn" type="button" data-hidden="true">Skip intro ›</button>
+    <button class="cap cap-btn" id="fullBtn" type="button" data-hidden="true">Watch full intro</button>
+
+    <div class="cap" id="loader" role="progressbar" aria-label="Loading AIM" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div id="status" aria-live="polite">Gathering Intelligence...</div>
+      <div id="pct">0%</div>
+      <svg id="track" viewBox="0 0 300 12" preserveAspectRatio="none" aria-hidden="true">
+        <path id="trackBase" fill="none" stroke="#111" stroke-opacity=".28" stroke-width="2" stroke-linecap="round"/>
+        <path id="trackInk" fill="none" stroke="#111" stroke-width="5.5" stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+        <path id="trackGold" fill="none" stroke="#E3B23C" stroke-width="2.6" stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+      </svg>
+    </div>
+  </div>
+
+<script>
+(() => {
+'use strict';
+
+/* =============================================================================
+   CONFIG
+   ============================================================================= */
+const CONFIG = {
+  COLORS: {
+    // Brief palette
+    sand: '#E8C99A', sandShadow: '#B8925E',
+    red: '#A11D1D', redShadow: '#5E0F0F',
+    gold: '#E3B23C',
+    iron: '#9AA3AD', ironShadow: '#4A5058',
+    ink: '#111111', bg: '#14110F',
+    // Derived tones (third cel tone, materials the brief implies)
+    sandLight: '#F6E3C0', redLight: '#C4352B', redDeep: '#3D0808',
+    goldLight: '#F6D77A', goldShadow: '#9C7419',
+    ironLight: '#DCE2E7', ironDeep: '#2B2F35',
+    brass: '#C99A34', brassShadow: '#7C5A17',
+    bronze: '#B4813F', bronzeShadow: '#6A4520',
+    skin: '#D6A06E', skinShadow: '#9A6640',
+    leather: '#5C3B22', leatherShadow: '#2E1C0F',
+    wood: '#8E5E34', woodShadow: '#4C2F18',
+    wool: '#EEE1C6', woolShadow: '#B5A281',
+    fur: '#4E3826', furShadow: '#271A10',
+  },
+  DRAW_FPS: 12,            // characters animate on twos
+  BOIL_PX: 0.55,           // line boil amplitude in screen pixels
+  DPR_MAX: 2,
+  STORAGE_KEY: 'aim.intro.seen.v1',
+  WAIT_FOR_INTRO: true,    // finish() waits for the hero shot instead of cutting the intro short
+  MIN_HOLD: 0.6,           // seconds the hero shot shows before the closing stomp
+  DEMO_AFTER_MS: 700,      // demo progress starts if setProgress() has not been called by then
+  DEMO_EXTRA: 2.4,         // demo load ends this many seconds after the intro
+  ARROWS_FULL: 56,
+  ARROWS_SHORT: 34,
+  STATUS: [
+    [0, 'Gathering Intelligence...'],
+    [34, 'Optimizing...'],
+    [67, 'Securing your Management dashboard...'],
+  ],
+};
+
+// Scene timings in seconds. The short version reuses the same choreography with
+// the formation already built, a quicker volley and the hero shot at 1.5 s.
+const FULL = {
+  short: false,
+  marchStart: 0, marchEnd: 3.42,
+  turn: 3.8, close: 4.05, slam: 4.55, flank: 4.86, roof1: 5.15, roof2: 5.55, rear: 5.95,
+  volley: 6.5, volleyDur: 1.2,
+  hero: 8.5, glint: 8.75, word: 9.0, end: 10.0,
+  panel2: [2.0, 3.8], panel3: [3.0, 3.8], fullFrame: 3.8,
+};
+const SHIFT = 7.2;
+const SHORT = {
+  short: true,
+  marchStart: FULL.marchStart - SHIFT, marchEnd: FULL.marchEnd - SHIFT,
+  turn: FULL.turn - SHIFT, close: FULL.close - SHIFT, slam: FULL.slam - SHIFT, flank: FULL.flank - SHIFT,
+  roof1: FULL.roof1 - SHIFT, roof2: FULL.roof2 - SHIFT, rear: FULL.rear - SHIFT,
+  volley: 0.3, volleyDur: 0.75,
+  hero: 1.45, glint: 1.55, word: 1.7, end: 3.0,
+  panel2: null, panel3: null, fullFrame: -1,
+};
+
+const C = CONFIG.COLORS;
+const INK = C.ink;
+
+/* =============================================================================
+   Small utilities
+   ============================================================================= */
+const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const inv = (a, b, v) => clamp((v - a) / (b - a));
+const E = {
+  inOut: t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2),
+  out: t => 1 - Math.pow(1 - t, 3),
+  in: t => t * t * t,
+  inQ: t => t * t,
+  outQ: t => 1 - (1 - t) * (1 - t),
+  sine: t => -(Math.cos(Math.PI * t) - 1) / 2,
+  outBack: t => { const c = 1.6; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); },
+};
+const bump = (t, a, b, fadeIn = 0.25, fadeOut = 0.4) => Math.min(inv(a, a + fadeIn, t), 1 - inv(b - fadeOut, b, t));
+
+function rng(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hash(x, y, s) {
+  const h = Math.sin(x * 127.1 + y * 311.7 + s * 74.7) * 43758.5453;
+  return h - Math.floor(h);
+}
+
+// Anticipation, fast action, weighted settle. Returns progress that dips below 0
+// (wind up), overshoots past 1 and settles back with a small undershoot.
+function act(t, t0, o) {
+  const ant = o.ant ?? 0.1, fast = o.fast ?? 0.1, settle = o.settle ?? 0.2;
+  const a = o.a ?? 0.12, over = o.over ?? 0.07;
+  const u = t - t0;
+  if (u <= 0) return 0;
+  if (u < ant) return -a * E.sine(u / ant);
+  if (u < ant + fast) {
+    const k = (u - ant) / fast;
+    return lerp(-a, 1 + over, o.ease === 'out' ? E.outQ(k) : E.inQ(k));
+  }
+  if (u < ant + fast + settle) {
+    const k = (u - ant - fast) / settle;
+    return 1 + over * Math.cos(k * Math.PI * 1.5) * Math.pow(1 - k, 2);
+  }
+  return 1;
+}
+
+// Vectors (world space: X right, Y up, Z toward the camera, in metres)
+const v3 = (x, y, z) => [x, y, z];
+const vadd = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const vsub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const vmul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const vlerp = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+const vdot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const vcross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const vlen = a => Math.hypot(a[0], a[1], a[2]);
+const vnorm = a => vmul(a, 1 / (vlen(a) || 1));
+
+/* =============================================================================
+   Projection: a high three quarter (cavalier) view. Depth recedes up and to the
+   right, so the camera sees the front, the top and the right flank of the testudo.
+   ============================================================================= */
+const KX = 0.38, KZ = 0.42;
+const projP = (X, Y, Z) => [X - KX * Z, -Y + KZ * Z];       // world point -> projected metres
+const projD = v => [v[0] - KX * v[2], -v[1] + KZ * v[2]];     // world direction -> projected
+const VIEW = vnorm([KX, KZ, 1]);                               // points toward the camera
+const SUN = vnorm([-0.55, 0.75, 0.38]);                        // harsh sun, upper left
+const SHADOW_DIR = [1.15, 0, 0.25];                            // ground shadow offset per metre of height
+
+/* =============================================================================
+   Ink drawing primitives
+   Every outline is drawn three ways: a solid ink copy offset down and right (so
+   the line is heavier on the shadow side), the cel fill with hard edged shadow
+   and rim light bands, then a thinner ink stroke on top.
+   ============================================================================= */
+let g = null;      // current 2D context
+let PX = 1;        // local units per screen pixel
+let JIT = 0;       // line boil amplitude in local units
+let BSEED = 0;     // boil variant (changes on twos)
+let DET = true;    // fine detail: rivets, studs, scales
+let LOD = false;   // small on screen: skip halftone dots
+const PATTERNS = new WeakMap();
+
+function patterns(ctx) {
+  let p = PATTERNS.get(ctx);
+  if (p) return p;
+  const tile = (w, h, draw) => { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d')); return ctx.createPattern(c, 'repeat'); };
+  p = {
+    half: tile(6, 6, t => { t.fillStyle = 'rgba(17,17,17,.6)'; t.beginPath(); t.arc(1.5, 1.5, 1.2, 0, 7); t.arc(4.5, 4.5, 1.2, 0, 7); t.fill(); }),
+    hatch: tile(7, 7, t => { t.strokeStyle = 'rgba(17,17,17,.38)'; t.lineWidth = 0.8; t.beginPath(); t.moveTo(0, 7); t.lineTo(7, 0); t.moveTo(-1, 1); t.lineTo(1, -1); t.moveTo(6, 8); t.lineTo(8, 6); t.moveTo(0, 0); t.lineTo(7, 7); t.stroke(); }),
+    lines: tile(5, 5, t => { t.strokeStyle = 'rgba(17,17,17,.42)'; t.lineWidth = 0.8; t.beginPath(); t.moveTo(0, 5); t.lineTo(5, 0); t.moveTo(-1, 1); t.lineTo(1, -1); t.moveTo(4, 6); t.lineTo(6, 4); t.stroke(); }),
+    mail: tile(6, 5, t => { t.strokeStyle = 'rgba(17,17,17,.45)'; t.lineWidth = 0.7; t.beginPath(); t.arc(3, 1.5, 1.6, 0.2, Math.PI - 0.2); t.arc(0, 4, 1.6, 0.2, Math.PI - 0.2); t.moveTo(7.6, 4.3); t.arc(6, 4, 1.6, 0.2, Math.PI - 0.2); t.stroke(); }),
+  };
+  PATTERNS.set(ctx, p);
+  return p;
+}
+// Keep halftone dots and hatching a constant size on screen whatever the drawing scale.
+function scalePatterns() {
+  const p = patterns(g);
+  if (!p.half.setTransform) return;
+  const m = new DOMMatrix([PX, 0, 0, PX, 0, 0]);
+  p.half.setTransform(m); p.hatch.setTransform(m); p.lines.setTransform(m); p.mail.setTransform(m);
+}
+
+const jx = (x, y) => (JIT ? x + (hash(x * 0.71, y * 0.53, BSEED) - 0.5) * 2 * JIT : x);
+const jy = (x, y) => (JIT ? y + (hash(y * 0.67, x * 0.41, BSEED + 9) - 0.5) * 2 * JIT : y);
+
+// Points are [x, y] or [x, y, 1] for a sharp corner. Smooth paths run quadratic
+// curves through segment midpoints, which reads like a confident brush line.
+function pathOf(pts, closed = true, smooth = true) {
+  const n = pts.length, P = new Array(n);
+  for (let i = 0; i < n; i++) { const q = pts[i]; P[i] = [jx(q[0], q[1]), jy(q[0], q[1]), q[2]]; }
+  const p = new Path2D();
+  if (!smooth || n < 3) {
+    p.moveTo(P[0][0], P[0][1]);
+    for (let i = 1; i < n; i++) p.lineTo(P[i][0], P[i][1]);
+    if (closed) p.closePath();
+    return p;
+  }
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  if (closed) {
+    let start = 0;
+    if (P[0][2]) { p.moveTo(P[0][0], P[0][1]); start = 1; }
+    else { const m = mid(P[n - 1], P[0]); p.moveTo(m[0], m[1]); }
+    for (let k = 0; k < n; k++) {
+      const i = (start + k) % n, c = P[i];
+      if (c[2]) p.lineTo(c[0], c[1]);
+      else { const m = mid(c, P[(i + 1) % n]); p.quadraticCurveTo(c[0], c[1], m[0], m[1]); }
+    }
+    p.closePath();
+  } else {
+    p.moveTo(P[0][0], P[0][1]);
+    for (let i = 1; i < n - 1; i++) {
+      const c = P[i];
+      if (c[2]) p.lineTo(c[0], c[1]);
+      else { const m = mid(c, P[i + 1]); p.quadraticCurveTo(c[0], c[1], m[0], m[1]); }
+    }
+    p.lineTo(P[n - 1][0], P[n - 1][1]);
+  }
+  return p;
+}
+
+// o.shade = [color, dx, dy]  hard form shadow on the lower right
+// o.deep  = [dx, dy]         halftone in the very darkest edge of that shadow
+// o.rim   = [color, dx, dy]  rim light on the upper left
+// o.hatch = true             crosshatch over the whole shape
+function ink(pts, fill, o = {}) {
+  const p = pts instanceof Path2D ? pts : pathOf(pts, !o.open, o.smooth !== false);
+  if (fill) {
+    const hv = (o.heavy ?? 1.3) * PX;
+    if (hv > 0) { g.save(); g.translate(hv * 0.85, hv); g.fillStyle = INK; g.fill(p); g.restore(); }
+    g.fillStyle = fill;
+    g.fill(p);
+    if (o.shade || o.rim || o.hatch) {
+      g.save();
+      g.clip(p);
+      if (o.shade) {
+        const [sc, sdx, sdy] = o.shade;
+        g.fillStyle = sc; g.fill(p);
+        if (o.deep && !LOD) {
+          g.fillStyle = patterns(g).half; g.fill(p);
+          g.save(); g.translate(-o.deep[0], -o.deep[1]); g.fillStyle = sc; g.fill(p); g.restore();
+        }
+        g.save(); g.translate(-sdx, -sdy); g.fillStyle = fill; g.fill(p); g.restore();
+      }
+      if (o.hatch) { g.fillStyle = patterns(g).hatch; g.fill(p); }
+      if (o.rim) {
+        const [rc, rdx, rdy] = o.rim;
+        const r = new Path2D();
+        r.rect(-1e4, -1e4, 2e4, 2e4);
+        r.addPath(p, new DOMMatrix([1, 0, 0, 1, rdx, rdy]));
+        g.clip(r, 'evenodd');
+        g.fillStyle = rc; g.fill(p);
+      }
+      g.restore();
+    }
+  }
+  const w = (o.w ?? 1.5) * PX;
+  if (w > 0) {
+    g.lineWidth = w; g.strokeStyle = o.stroke || INK;
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    g.stroke(p);
+  }
+  return p;
+}
+function line(pts, w = 0.9, color = INK, smooth = true) {
+  const p = pathOf(pts, false, smooth);
+  g.lineWidth = w * PX; g.strokeStyle = color; g.lineJoin = 'round'; g.lineCap = 'round';
+  g.stroke(p);
+}
+// Gold (or any) line with an ink outline, for trims, bolts and frames.
+function trimLine(pts, color, w = 2, closed = false, smooth = false) {
+  const p = pathOf(pts, closed, smooth);
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.lineWidth = (w + 1.8) * PX; g.strokeStyle = INK; g.stroke(p);
+  g.lineWidth = w * PX; g.strokeStyle = color; g.stroke(p);
+}
+function ellipsePts(cx, cy, rx, ry, n = 12, rot = 0) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2, x = Math.cos(a) * rx, y = Math.sin(a) * ry;
+    pts.push([cx + x * Math.cos(rot) - y * Math.sin(rot), cy + x * Math.sin(rot) + y * Math.cos(rot)]);
+  }
+  return pts;
+}
+function dot(x, y, r, fill = C.brass, w = 0.7) { ink(ellipsePts(x, y, r, r, 8), fill, { w, heavy: 0.5 }); }
+function rrPts(x, y, w, h, r) {
+  const pts = [], cs = [[x + w - r, y + r, -Math.PI / 2], [x + w - r, y + h - r, 0], [x + r, y + h - r, Math.PI / 2], [x + r, y + r, Math.PI]];
+  for (const [cx, cy, a0] of cs) for (let k = 0; k <= 3; k++) { const a = a0 + (k / 3) * (Math.PI / 2); pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  return pts;
+}
+// Tapered limb outline between two joints, with an optional muscle bulge.
+function limb(a, b, wa, wb, bulge = 0, bulgeSide = 1) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1;
+  const nx = -dy / L, ny = dx / L;
+  const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], wm = (wa + wb) / 2;
+  const bs = bulgeSide > 0 ? bulge : 0, bo = bulgeSide < 0 ? bulge : 0;
+  return [
+    [a[0] + nx * wa / 2, a[1] + ny * wa / 2],
+    [m[0] + nx * (wm / 2 + bs), m[1] + ny * (wm / 2 + bs)],
+    [b[0] + nx * wb / 2, b[1] + ny * wb / 2],
+    [b[0] - nx * wb / 2, b[1] - ny * wb / 2],
+    [m[0] - nx * (wm / 2 + bo), m[1] - ny * (wm / 2 + bo)],
+    [a[0] - nx * wa / 2, a[1] - ny * wa / 2],
+  ];
+}
+// Two bone inverse kinematics in the drawing plane. bend = +1 or -1 picks the knee side.
+function ik(a, b, l1, l2, bend) {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const d = Math.min(Math.hypot(dx, dy), l1 + l2 - 0.01);
+  const ang = Math.atan2(dy, dx);
+  const A = Math.acos(clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d || 1), -1, 1));
+  return [a[0] + Math.cos(ang - bend * A) * l1, a[1] + Math.sin(ang - bend * A) * l1];
+}
+
+// Comic specular glint: a sharp four point star with a ring of thin rays (screen px).
+function glintStar(ctx, x, y, r, rot, alpha) {
+  if (alpha <= 0.01 || r < 0.5) return;
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(rot); ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2, rr = i % 2 ? r * 0.16 : r;
+    ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.lineJoin = 'miter';
+  ctx.lineWidth = Math.max(1.2, r * 0.12); ctx.strokeStyle = INK; ctx.stroke();
+  ctx.fillStyle = '#FFFFFF'; ctx.fill();
+  ctx.rotate(Math.PI / 4);
+  ctx.beginPath();
+  for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2; ctx.moveTo(Math.cos(a) * r * 0.25, Math.sin(a) * r * 0.25); ctx.lineTo(Math.cos(a) * r * 0.62, Math.sin(a) * r * 0.62); }
+  ctx.lineWidth = Math.max(1, r * 0.06); ctx.strokeStyle = '#FFFFFF'; ctx.stroke();
+  ctx.restore();
+}
+
+/* =============================================================================
+   Scutum sprites (pre-rendered, then mapped onto any plane with an affine
+   transform so all 32 shields stay identical). Units: centimetres, 66 x 120.
+   ============================================================================= */
+const SH_W = 66, SH_H = 120, SPX = 3.4, SPAD = 6;
+const TONE_LIT = {
+  face: C.red, faceLit: C.redLight, faceSh: C.redShadow,
+  gold: C.gold, goldSh: C.goldShadow, iron: C.iron, ironSh: C.ironShadow, ironLight: C.ironLight,
+  bronze: C.bronze, bronzeSh: C.bronzeShadow, brass: C.brass, spec: true,
+};
+const TONE_SHADE = {
+  face: C.redShadow, faceLit: C.red, faceSh: C.redDeep,
+  gold: C.goldShadow, goldSh: '#5E4510', iron: C.ironShadow, ironSh: C.ironDeep, ironLight: C.iron,
+  bronze: C.bronzeShadow, bronzeSh: '#3B260F', brass: C.brassShadow, hatch: true,
+};
+const SPR = { lit: [], shade: [], back: [], edge: null };
+
+function makeShieldCanvas(draw, boil) {
+  const cv = document.createElement('canvas');
+  cv.width = Math.ceil(SH_W * SPX + SPAD * 2);
+  cv.height = Math.ceil(SH_H * SPX + SPAD * 2);
+  g = cv.getContext('2d');
+  g.translate(SPAD, SPAD); g.scale(SPX, SPX);
+  PX = 1.75 / SPX; JIT = boil >= 0 ? 0.32 : 0; BSEED = boil * 13.1; DET = true;
+  scalePatterns();
+  draw();
+  return cv;
+}
+
+function wing(sx, sy, T) {
+  // Canonical upper left wing, mirrored into the four quadrants around the boss.
+  const base = [[26.5, 50.5], [21.5, 42.5], [15.5, 35.2], [10.6, 29.4], [6.6, 25], [8.6, 31.4], [10.9, 32.1], [11.7, 36.3], [14.7, 37.3], [15.5, 41.5], [18.7, 42.5], [19.7, 46.6], [23.2, 48], [24.2, 52]];
+  const mx = p => [sx < 0 ? p[0] : SH_W - p[0], sy < 0 ? p[1] : SH_H - p[1]];
+  ink(base.map(mx), T.gold, { w: 1.1, heavy: 0.8, shade: [T.goldSh, 1.1, 1.6] });
+  line([[23.6, 49.2], [18.5, 42.6], [12.6, 34.6]].map(mx), 0.55);
+  line([[24.6, 50.6], [21.6, 46.9]].map(mx), 0.55);
+  line([[20.8, 46.4], [15.4, 38.9]].map(mx), 0.5);
+}
+
+function shieldFace(T) {
+  ink(rrPts(0, 0, SH_W, SH_H, 3.2), T.bronze, { smooth: false, w: 2, heavy: 1.8, shade: [T.bronzeSh, 2.4, 2.4] });
+  const fp = pathOf(rrPts(2.3, 2.3, 61.4, 115.4, 2.2), true, false);
+  g.fillStyle = T.face; g.fill(fp);
+  g.save(); g.clip(fp);
+  // The scutum curves around its vertical axis: lit band left, hard shadow right.
+  g.fillStyle = T.faceLit; g.fillRect(0, 0, 12.5, SH_H);
+  g.fillStyle = T.faceSh; g.fillRect(45, 0, 30, SH_H);
+  g.fillStyle = patterns(g).half; g.fillRect(56.5, 0, 20, SH_H);
+  if (T.hatch) { g.fillStyle = patterns(g).hatch; g.fillRect(0, 0, SH_W, SH_H); }
+  g.restore();
+  g.lineWidth = 1.1 * PX; g.strokeStyle = INK; g.stroke(fp);
+  // Laminated plywood seams show faintly through the paint.
+  line([[12.5, 4], [12.5, 116]], 0.45, 'rgba(17,17,17,.35)', false);
+  line([[45, 4], [45, 116]], 0.45, 'rgba(17,17,17,.35)', false);
+
+  trimLine(rrPts(6.4, 6.4, 53.2, 107.2, 1.6), T.gold, 1.4, true);
+  // Jupiter's thunderbolts, vertical, with arrow tips
+  for (const s of [-1, 1]) {
+    const y = d => 60 + s * d;
+    trimLine([[33, y(11)], [29.6, y(21)], [35.8, y(25.5)], [30.3, y(37.5)], [36.3, y(41.5)], [33, y(49)]], T.gold, 2.6);
+    ink([[33, y(54.5), 1], [29.8, y(47.6), 1], [36.2, y(47.6), 1]], T.gold, { smooth: false, w: 1, heavy: 0.6 });
+    // Lightning rays flanking the bolt
+    line([[29, y(15)], [26.6, y(24)], [28.6, y(31)], [26.4, y(40)]], 1.6, INK, false);
+    line([[29, y(15)], [26.6, y(24)], [28.6, y(31)], [26.4, y(40)]], 0.8, T.gold, false);
+    line([[37, y(15)], [39.4, y(24)], [37.4, y(31)], [39.6, y(40)]], 1.6, INK, false);
+    line([[37, y(15)], [39.4, y(24)], [37.4, y(31)], [39.6, y(40)]], 0.8, T.gold, false);
+    // Horizontal bolts between the wings
+    trimLine([[33 + s * 11, 60], [33 + s * 16, 57.2], [33 + s * 19.5, 62.7], [33 + s * 25, 58.6]], T.gold, 1.9);
+  }
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) wing(sx, sy, T);
+
+  // Iron boss on its square plate
+  ink(rrPts(23.5, 50.5, 19, 19, 1.2), T.iron, { smooth: false, w: 1.3, heavy: 1.1, shade: [T.ironSh, 4.2, 4.2], rim: [T.ironLight, 1.3, 1.3] });
+  for (const [x, y] of [[25.7, 52.7], [40.3, 52.7], [25.7, 67.3], [40.3, 67.3]]) dot(x, y, 0.9, T.brass, 0.6);
+  ink(ellipsePts(33, 60, 7.4, 7.4, 14), T.iron, { w: 1.6, heavy: 1.5, shade: [T.ironSh, 3.4, 3.4], deep: [1.5, 1.5], rim: [T.ironLight, 1.7, 1.7] });
+  if (T.spec) ink(ellipsePts(30.3, 57.3, 1.6, 1.1, 8, -0.6), '#FFFFFF', { w: 0, heavy: 0 });
+}
+
+function shieldBack() {
+  ink(rrPts(0, 0, SH_W, SH_H, 3.2), C.bronzeShadow, { smooth: false, w: 2, heavy: 1.8 });
+  const fp = pathOf(rrPts(2.3, 2.3, 61.4, 115.4, 2.2), true, false);
+  g.fillStyle = C.woodShadow; g.fill(fp);
+  g.save(); g.clip(fp);
+  g.fillStyle = C.wood; g.fillRect(40, 0, 26, SH_H);              // concave back: light falls on the right
+  g.fillStyle = patterns(g).hatch; g.fillRect(0, 0, 18, SH_H);
+  for (let y = 10; y < SH_H; y += 9.5) line([[3, y], [63, y + 0.6]], 0.45, 'rgba(17,17,17,.5)', false);
+  g.restore();
+  g.lineWidth = 1.1 * PX; g.strokeStyle = INK; g.stroke(fp);
+  ink(ellipsePts(33, 60, 7.2, 7.2, 14), '#1A110A', { w: 1.2, heavy: 0 });
+  ink(rrPts(16, 57, 34, 6, 1.6), C.wood, { smooth: false, w: 1.2, heavy: 0.8, shade: [C.woodShadow, 1, 1.6] });
+  ink(rrPts(28, 56.2, 10, 7.6, 1.2), C.leather, { smooth: false, w: 1, heavy: 0.6 });
+  for (const [x, y] of [[19, 60], [47, 60]]) dot(x, y, 0.9, C.brassShadow, 0.6);
+}
+
+function buildShieldSprites() {
+  for (let b = 0; b < 3; b++) {
+    SPR.lit[b] = makeShieldCanvas(() => shieldFace(TONE_LIT), b);
+    SPR.shade[b] = makeShieldCanvas(() => shieldFace(TONE_SHADE), b);
+    SPR.back[b] = makeShieldCanvas(shieldBack, b);
+  }
+  SPR.edge = makeShieldCanvas(() => ink(rrPts(0, 0, SH_W, SH_H, 3.2), C.bronzeShadow, { smooth: false, w: 2.2, heavy: 0 }), -1);
+}
+
+/* =============================================================================
+   Vexillum texture: square red cloth, gold fringe, and the AIM wordmark that
+   resolves in gold ink during the hero shot. Folds are shaded at draw time.
+   ============================================================================= */
+const BAN_W = 72, BAN_H = 80, BPX = 6, BPAD = 8;
+const bannerCv = document.createElement('canvas');
+bannerCv.width = Math.ceil(BAN_W * BPX + BPAD * 2);
+bannerCv.height = Math.ceil(BAN_H * BPX + BPAD * 2);
+let bannerKey = '';
+
+function drawBannerTexture(reveal, boil) {
+  const key = reveal.toFixed(3) + '|' + boil;
+  if (key === bannerKey) return;
+  bannerKey = key;
+  const prevG = g, prevPX = PX, prevJ = JIT, prevB = BSEED;
+  g = bannerCv.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, bannerCv.width, bannerCv.height);
+  g.translate(BPAD, BPAD); g.scale(BPX, BPX);
+  PX = 1.5 / BPX; JIT = 0.12; BSEED = boil * 7.7;
+  scalePatterns();
+
+  // Fringe first so the cloth edge overlaps it
+  for (let x = 1.2; x < BAN_W - 0.5; x += 2.1) {
+    const len = 9 + hash(x, 3, 1) * 3;
+    line([[x, 66], [x + 0.5, 66 + len]], 1.5, INK, false);
+    line([[x, 66], [x + 0.5, 66 + len - 0.4]], 0.8, hash(x, 9, 2) > 0.5 ? C.gold : C.goldShadow, false);
+  }
+  ink(rrPts(0, 0, BAN_W, 67, 0.8), C.red, { smooth: false, w: 1.8, heavy: 0, shade: [C.redShadow, 0, -0.01] });
+  trimLine(rrPts(3.4, 3.4, BAN_W - 6.8, 60.2, 0.8), C.gold, 1.2, true);
+  ink([[0, 64.4, 1], [BAN_W, 64.4, 1], [BAN_W, 68, 1], [0, 68, 1]], C.gold, { smooth: false, w: 1, heavy: 0, shade: [C.goldShadow, 0, -1.6] });
+
+  if (reveal > 0) {
+    g.save();
+    // Brush reveal: a ragged edge travels left to right
+    const edge = reveal * (BAN_W + 12) - 6;
+    const clip = new Path2D();
+    clip.moveTo(-2, -2);
+    for (let y = -2; y <= 70; y += 4) clip.lineTo(edge + (hash(y, 4, 2) - 0.5) * 5, y);
+    clip.lineTo(-2, 70); clip.closePath();
+    g.clip(clip);
+    g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+    g.font = '900 27px Cinzel, Georgia, serif';
+    g.lineJoin = 'round';
+    g.fillStyle = INK; g.fillText('AIM', 36.8, 43.2);          // ink extrude, shadow side
+    g.lineWidth = 2.4; g.strokeStyle = INK; g.strokeText('AIM', 36, 42.4);
+    g.fillStyle = C.gold; g.fillText('AIM', 36, 42.4);
+    g.save();
+    g.beginPath(); g.rect(0, 33, BAN_W, 12); g.clip();
+    g.fillStyle = C.goldShadow; g.fillText('AIM', 36, 42.4);   // cel shadow on the lower third of the letters
+    g.restore();
+    trimLine([[20, 49.5], [33.5, 49.5]], C.gold, 1.1);
+    trimLine([[38.5, 49.5], [52, 49.5]], C.gold, 1.1);
+    ink([[36, 47.4, 1], [38.2, 49.5, 1], [36, 51.6, 1], [33.8, 49.5, 1]], C.gold, { smooth: false, w: 0.8, heavy: 0.4 });
+    g.restore();
+  }
+  g = prevG; PX = prevPX; JIT = prevJ; BSEED = prevB;
+}
+
+/* =============================================================================
+   Textures: arena sand (tiled 4 m x 4 m) and the paper grain overlay
+   ============================================================================= */
+function makeGroundTile() {
+  const S = 512, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const t = cv.getContext('2d'), r = rng(42);
+  t.fillStyle = C.sand; t.fillRect(0, 0, S, S);
+  for (let i = 0; i < 9000; i++) {
+    const dark = r() < 0.55;
+    t.fillStyle = dark ? `rgba(110,78,40,${(0.05 + r() * 0.1).toFixed(3)})` : `rgba(255,240,210,${(0.12 + r() * 0.2).toFixed(3)})`;
+    const s = 0.6 + r() * 1.6;
+    t.fillRect(r() * S, r() * S, s, s);
+  }
+  // Faint rake lines across the arena floor
+  t.lineWidth = 1;
+  for (let y = 10; y < S; y += 22 + r() * 10) {
+    t.strokeStyle = `rgba(122,88,48,${(0.08 + r() * 0.08).toFixed(3)})`;
+    t.beginPath();
+    for (let x = 0; x <= S; x += 32) t.lineTo(x, y + Math.sin(x * 0.02 + y) * 2.5);
+    t.stroke();
+  }
+  // Pebbles in ink
+  for (let i = 0; i < 70; i++) {
+    const x = r() * S, y = r() * S, w = 2 + r() * 4, h = 1.2 + r() * 2.2;
+    t.beginPath(); t.ellipse(x, y, w, h, r() * 3, 0, 7);
+    t.fillStyle = C.sandShadow; t.fill();
+    t.lineWidth = 0.9; t.strokeStyle = 'rgba(17,17,17,.55)'; t.stroke();
+  }
+  return cv;
+}
+function makeGrain() {
+  const S = 256, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const t = cv.getContext('2d'), img = t.createImageData(S, S), r = rng(7);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const v = 110 + r() * 60 + (r() < 0.02 ? -70 : 0);
+    img.data[i] = v; img.data[i + 1] = v * 0.94; img.data[i + 2] = v * 0.84; img.data[i + 3] = 70;
+  }
+  t.putImageData(img, 0, 0);
+  // A few paper fibres
+  t.strokeStyle = 'rgba(60,40,20,.25)'; t.lineWidth = 0.6;
+  for (let i = 0; i < 40; i++) { const x = r() * S, y = r() * S, a = r() * 3; t.beginPath(); t.moveTo(x, y); t.quadraticCurveTo(x + 6, y + 3, x + Math.cos(a) * 18, y + Math.sin(a) * 18); t.stroke(); }
+  return cv.toDataURL('image/png');
+}
+
+/* =============================================================================
+   Figures, drawn in centimetres. Origin is the ground point between the feet,
+   x to the figure's screen right, y down (so the head is near y = -165).
+   Front view faces the camera; profile view faces screen right.
+   All 32 legionaries and the command group share these parts.
+   ============================================================================= */
+let BOIL = 0;   // which shield sprite variant to use this drawing
+
+const off = (pts, dy) => pts.map(q => [q[0], q[1] + dy, q[2]]);
+function halftone(pts) { if (LOD) return; const p = pathOf(pts); g.fillStyle = patterns(g).half; g.fill(p); }
+
+function caligaFront(f) {
+  const [x, y] = f;
+  ink([[x - 5.6, y - 0.4], [x - 4.9, y - 6], [x, y - 8.4], [x + 4.9, y - 6], [x + 5.6, y - 0.4], [x, y + 1.3]], C.leather, { shade: [C.leatherShadow, 2.2, 1], w: 1.4 });
+  if (DET) {
+    ink(ellipsePts(x - 1.9, y - 2.4, 1.4, 1, 6), C.skin, { w: 0.6, heavy: 0 });
+    ink(ellipsePts(x + 1.7, y - 2.6, 1.4, 1, 6), C.skin, { w: 0.6, heavy: 0 });
+  }
+  line([[x - 4.6, y - 4.2], [x + 4.6, y - 6.4]], 1.3, C.leatherShadow);
+  for (const yy of [-10.5, -15]) line([[x - 3.7, y + yy + 1.1], [x + 3.7, y + yy - 1.1]], 1.7, C.leather);
+}
+function caligaProfile(f, far) {
+  const [x, y] = f;
+  ink([[x - 7, y - 1], [x - 7.6, y - 6.4], [x - 3, y - 9.4], [x + 2.4, y - 7.2], [x + 9, y - 3.8], [x + 12.6, y - 1.8], [x + 12.2, y + 0.6, 1], [x - 6.6, y + 0.9, 1]], far ? C.leatherShadow : C.leather, { shade: [C.leatherShadow, 2, 1.4], w: 1.4 });
+  line([[x - 6.4, y + 0.2], [x + 12, y - 0.1]], 1.2, INK, false);
+  if (DET) for (let k = -5; k < 12; k += 2.6) dot(x + k, y + 0.9, 0.55, C.ironShadow, 0.4); // hobnails
+  line([[x - 1, y - 8.6], [x + 6, y - 4.2]], 1.1, C.leatherShadow);
+  for (const yy of [-11, -15.5]) line([[x - 4, y + yy + 0.8], [x + 3.6, y + yy - 0.6]], 1.6, C.leather);
+}
+
+function legFront(hip, f, s, kind) {
+  const ankle = [f[0], f[1] - 8];
+  const knee = ik(hip, ankle, 41, 38.5, s);
+  ink(limb(hip, knee, 14.5, 11.5, 1, s), C.skin, { shade: [C.skinShadow, 4, 1], w: 1.4 });
+  ink(limb(knee, ankle, 11, 7, 1.6, s), C.skin, { shade: [C.skinShadow, 3.6, 0.6], rim: [C.sandLight, 1.2, 0], w: 1.5 });
+  if (kind === 'cent') {
+    // Silvered greaves with a knee boss
+    ink(limb([knee[0], knee[1] - 2], [ankle[0], ankle[1] - 4], 12.4, 8.6, 1.4, s), C.ironLight, { shade: [C.iron, 3.4, 0.4], rim: ['#FFFFFF', 1.4, 0], w: 1.5 });
+    ink(ellipsePts(knee[0], knee[1] - 1, 4.6, 3.8, 10), C.ironLight, { shade: [C.iron, 1.6, 1.4], w: 1.2 });
+  }
+  caligaFront(f);
+}
+function legProfile(hip, f, far, kind) {
+  const ankle = [f[0], f[1] - 7];
+  const knee = ik(hip, ankle, 43, 38, 1);
+  const skin = far ? C.skinShadow : C.skin;
+  ink(limb(hip, knee, 15, 11.5, 1.2, 1), skin, { shade: [C.skinShadow, 3, 1], w: 1.4 });
+  ink(limb(knee, ankle, 11, 6.8, 2.2, -1), skin, { shade: [far ? '#7A4E30' : C.skinShadow, 2.6, 1], w: 1.5 });
+  if (kind === 'cent') ink(limb([knee[0] + 1, knee[1]], [ankle[0] + 0.5, ankle[1] - 3.5], 9, 6, 1, 1), far ? C.iron : C.ironLight, { shade: [C.iron, 2, 1], w: 1.3 });
+  caligaProfile(f, far);
+}
+
+function gladius(x, by, s) {
+  const top = [x, -100 + by], bot = [x - s * 2.6, -55 + by];
+  ink(limb(top, bot, 5.8, 4.6), C.leather, { shade: [C.leatherShadow, 2.4, 1], rim: ['#7E5636', 1.2, 0], w: 1.4 });
+  for (const t of [0.08, 0.32]) {
+    const p = [lerp(top[0], bot[0], t), lerp(top[1], bot[1], t)];
+    ink(rrPts(p[0] - 3.4, p[1] - 1.1, 6.8, 2.2, 0.6), C.brass, { smooth: false, w: 0.9, heavy: 0.6 });
+  }
+  ink([[bot[0] - 2.6, bot[1] - 4], [bot[0] + 2.6, bot[1] - 4], [bot[0] + 1.4, bot[1] + 1.4], [bot[0], bot[1] + 2.4], [bot[0] - 1.4, bot[1] + 1.4]], C.brass, { shade: [C.brassShadow, 1.2, 1], w: 1.1 });
+  // Hilt: bone guard, ribbed grip, pommel
+  ink(ellipsePts(x, -101.8 + by, 4.6, 1.5, 10), C.sandLight, { shade: [C.sandShadow, 1.6, 0.6], w: 1.1 });
+  ink(rrPts(x - 1.6, -110 + by, 3.2, 8, 1), C.sand, { smooth: false, shade: [C.sandShadow, 1.2, 0], w: 1 });
+  ink(ellipsePts(x, -112 + by, 3.4, 2.4, 10), C.sandLight, { shade: [C.sandShadow, 1.4, 1], w: 1.1 });
+}
+function pugio(x, by, s) {
+  const top = [x, -100 + by], bot = [x + s * 1.2, -80 + by];
+  ink(limb(top, bot, 4.4, 3.2), C.brass, { shade: [C.brassShadow, 1.6, 0.8], w: 1.2 });
+  if (DET) for (const t of [0.25, 0.55, 0.85]) dot(lerp(top[0], bot[0], t), lerp(top[1], bot[1], t), 0.8, C.red, 0.5);
+  ink(ellipsePts(x, -103.6 + by, 2.4, 2, 8), C.iron, { w: 1, heavy: 0.6 });
+}
+function apronFront(by, sw) {
+  for (let i = 0; i < 5; i++) {
+    const x = -8 + i * 4, len = 26 + (i % 2) * 2;
+    const a = [x, -100 + by], b = [x + sw * 0.35, -100 + len + by];
+    ink(limb(a, b, 3.2, 3), C.leather, { shade: [C.leatherShadow, 1.2, 0], w: 1.1, heavy: 0.8 });
+    if (DET) for (const t of [0.2, 0.47, 0.74]) dot(lerp(a[0], b[0], t), lerp(a[1], b[1], t), 1, C.brass, 0.5);
+    ink([[b[0] - 1.6, b[1] - 0.4], [b[0] + 1.6, b[1] - 0.4], [b[0], b[1] + 3]], C.brass, { w: 0.9, heavy: 0.5 });
+  }
+}
+function beltFront(by) {
+  ink([[-19.8, -105 + by, 1], [19.8, -105 + by, 1], [20, -99.4 + by, 1], [-20, -99.4 + by, 1]], C.brass, { smooth: false, shade: [C.brassShadow, 3, 1.6], rim: [C.goldLight, 1, 1], w: 1.3 });
+  if (DET) for (let x = -14; x <= 14; x += 7) line([[x, -104.6 + by], [x, -99.8 + by]], 0.6, INK, false);
+}
+
+// Torso variants
+function segmentataFront(by) {
+  for (let i = 0; i < 5; i++) {
+    const yb = -100.6 - i * 5 + by, yt = yb - 5.8, w = 18.2 + i * 0.75;
+    ink([[-w, yt, 1], [0, yt + 1.4], [w, yt, 1], [w + 0.6, yb, 1], [0, yb + 1.5], [-w - 0.6, yb, 1]], C.iron, { shade: [C.ironShadow, 7.5, 2.2], deep: [3, 0.8], rim: [C.ironLight, 2.6, 1.3], w: 1.3, heavy: 1.1 });
+  }
+  line([[0, -128 + by], [0, -101 + by]], 0.9, INK, false);
+  if (DET) for (let i = 0; i < 5; i += 2) { const y = -103.4 - i * 5 + by; ink(rrPts(-2.4, y - 0.9, 4.8, 1.8, 0.4), C.brass, { smooth: false, w: 0.6, heavy: 0.3 }); }
+  for (const s of [-1, 1]) {
+    ink([[s * 0.8, -126 + by, 1], [s * 21.6, -126.6 + by, 1], [s * 22.2, -136 + by], [s * 17, -145.6 + by], [s * 8, -147.6 + by], [s * 0.8, -146 + by, 1]], C.iron, { shade: [C.ironShadow, s > 0 ? 6.5 : 3.2, 2], rim: [C.ironLight, 2.4, 1.4], w: 1.3 });
+    ink(rrPts(s * 12 - 2.6, -141.4 + by, 5.2, 3.2, 0.6), C.brass, { smooth: false, shade: [C.brassShadow, 1, 1], w: 0.8, heavy: 0.5 });
+    if (DET) { dot(s * 5, -140 + by, 0.9); dot(s * 18.4, -131 + by, 0.9); dot(s * 7, -130 + by, 0.9); }
+  }
+}
+function lamesFront(by) {
+  for (const s of [-1, 1]) for (let j = 3; j >= 0; j--) {
+    const o = j * 3.4;
+    ink([[s * 8, -150 + o * 0.8 + by], [s * 18, -153.6 + o + by], [s * 26.6, -147 + o * 1.1 + by], [s * 28.6, -141 + o * 1.15 + by], [s * 26.6, -140 + o * 1.15 + by], [s * 18, -148.6 + o + by], [s * 8, -146.6 + o * 0.8 + by]],
+      C.iron, { shade: [C.ironShadow, s > 0 ? 3.2 : 1.4, 2.2], rim: [C.ironLight, 0.4, 1.3], w: 1.25, heavy: 1 });
+    if (DET && j === 0) dot(s * 15, -150 + by, 0.8);
+  }
+}
+const TORSO = [[-20.5, -96, 1], [20.5, -96, 1], [22.6, -128], [23, -140], [16, -148.4], [0, -146.4], [-16, -148.4], [-23, -140], [-22.6, -128]];
+function mailFront(by) {
+  const p = ink(off(TORSO, by), C.iron, { shade: [C.ironShadow, 7, 2], deep: [3, 1], rim: [C.ironLight, 2.6, 1.4], w: 1.5 });
+  g.save(); g.clip(p); g.fillStyle = patterns(g).mail; g.fill(p); g.restore();
+  for (const s of [-1, 1]) ink([[s * 6, -148 + by], [s * 22, -146 + by], [s * 25, -136 + by], [s * 20, -134 + by], [s * 8, -142 + by]], C.iron, { shade: [C.ironShadow, 2, 2], w: 1.2 });
+}
+function scaleFront(by) {
+  const p = ink(off(TORSO, by), C.ironLight, { shade: [C.iron, 7, 2], deep: [3, 1], rim: ['#FFFFFF', 2, 1.2], w: 1.5 });
+  g.save(); g.clip(p);
+  if (DET) {
+    g.lineWidth = 0.6 * PX; g.strokeStyle = 'rgba(17,17,17,.55)';
+    g.beginPath();
+    for (let row = 0, y = -97 + by; y > -150 + by; y -= 3, row++) for (let x = -24 + (row % 2) * 2; x < 25; x += 4) { g.moveTo(x - 2, y - 2); g.quadraticCurveTo(x, y + 1.6, x + 2, y - 2); }
+    g.stroke();
+  } else { g.fillStyle = patterns(g).mail; g.fill(p); }
+  g.restore();
+  // Leather harness with nine phalerae
+  for (const x of [-10, 10]) ink([[x - 1.6, -147 + by, 1], [x + 1.6, -147 + by, 1], [x + 1.6, -106 + by, 1], [x - 1.6, -106 + by, 1]], C.leather, { smooth: false, w: 1, heavy: 0.5 });
+  for (const y of [-137, -124, -111]) ink([[-12, y - 1.4 + by, 1], [12, y - 1.4 + by, 1], [12, y + 1.4 + by, 1], [-12, y + 1.4 + by, 1]], C.leather, { smooth: false, w: 1, heavy: 0.5 });
+  for (const x of [-10, 0, 10]) for (const y of [-137, -124, -111]) {
+    ink(ellipsePts(x, y + by, 3.6, 3.6, 12), C.gold, { shade: [C.goldShadow, 1.6, 1.6], rim: [C.goldLight, 1, 1], w: 1.2 });
+    if (DET) line(ellipsePts(x, y + by, 1.8, 1.8, 10).concat([ellipsePts(x, y + by, 1.8, 1.8, 10)[0]]), 0.6);
+  }
+  for (const s of [-1, 1]) ink([[s * 6, -149 + by], [s * 23, -147 + by], [s * 26, -136 + by], [s * 21, -132 + by], [s * 9, -142 + by]], C.ironLight, { shade: [C.iron, 2.4, 2], w: 1.2 });
+}
+
+function armFront(s, mode, raise, by) {
+  const sh = [s * 22, -141 + by];
+  let el, ha;
+  if (mode === 'raise') { el = [s * lerp(26.5, 31, raise), lerp(-115, -167, raise) + by]; ha = [s * lerp(23.5, 15, raise), lerp(-95, -190, raise) + by]; }
+  else if (mode === 'pole') { el = [s * 29, -119 + by]; ha = [s * 23.6, -112 + by]; }
+  else if (mode === 'vitis') { el = [s * 28, -116 + by]; ha = [s * 27, -97 + by]; }
+  else if (mode === 'horn') { el = [s * 27, -122 + by]; ha = [s * 15, -128 + by]; }
+  else { el = [s * 26.6, -115 + by]; ha = [s * 23.6, -95 + by]; }
+  const mid = [lerp(sh[0], el[0], 0.5), lerp(sh[1], el[1], 0.5)];
+  ink(limb(sh, mid, 11.5, 10.5), C.red, { shade: [C.redShadow, 2.6, 1], w: 1.3 });
+  ink(limb(mid, el, 9.6, 8.4, 1, -s), C.skin, { shade: [C.skinShadow, 2.6, 1], w: 1.3 });
+  ink(limb(el, ha, 8.4, 6.2, 1.3, -s), C.skin, { shade: [C.skinShadow, 2.4, 1], rim: [C.sandLight, 1, 0], w: 1.4 });
+  ink(ellipsePts(ha[0], ha[1] + 1.4, 4.3, 4.7, 10), C.skin, { shade: [C.skinShadow, 1.8, 1.5], w: 1.3 });
+  if (DET) line([[ha[0] - 2.6, ha[1] + 0.4], [ha[0] + 2.6, ha[1] + 0.2]], 0.6);
+  return ha;
+}
+
+function headFront(by, p) {
+  const y = by;
+  const T = pts => off(pts, y);
+  const silver = p.kind === 'cent';
+  const ic = silver ? C.ironLight : C.iron, is = silver ? C.iron : C.ironShadow;
+  ink(T([[-19.6, -157], [-13, -162.6], [13, -162.6], [19.6, -157], [18.6, -154.2], [0, -156.4], [-18.6, -154.2]]), ic, { shade: [is, 4, 1.6], w: 1.3 });
+  line(T([[-18, -155.4], [0, -157.6], [18, -155.4]]), 1.2, C.brass);
+  ink(limb([0, -146 + y], [0, -154 + y], 10, 10), C.skin, { shade: [C.skinShadow, 3, 0], w: 1.3 });
+  const ck = p.cheeks || 0;
+  ink(T([[-7.6 - ck * 1.8, -170], [7.6 + ck * 1.8, -170], [8.2 + ck * 2.6, -161], [6 + ck * 2.2, -153], [0, -150], [-6 - ck * 2.2, -153], [-8.2 - ck * 2.6, -161]]), C.skin, { shade: [C.skinShadow, 4, 1.2], rim: [C.sandLight, 1.2, 0.6], w: 1.4 });
+  // The helmet peak throws a hard shadow over the eyes
+  const brow = T([[-8.2, -170, 1], [8.2, -170, 1], [8, -164.8], [0, -163.8], [-8, -164.8]]);
+  ink(brow, C.skinShadow, { w: 0, heavy: 0 });
+  halftone(brow);
+  const open = p.mouth > 0.3 ? 1.25 : 0.8;
+  for (const s of [-1, 1]) {
+    ink(T(ellipsePts(s * 3.4, -165.8, 2, open, 8)), INK, { w: 0, heavy: 0 });
+    if (DET) ink(T(ellipsePts(s * 3.4 - 0.6, -166.1, 0.45, 0.35, 6)), '#FFFFFF', { w: 0, heavy: 0 });
+  }
+  if (p.mouth > 0.3) for (const s of [-1, 1]) line(T([[s * 1.2, -168.8], [s * 6, -167.2]]), 1.2); // furrowed brow
+  ink(T([[0.8, -165], [2, -159.6], [0.4, -159.4]]), C.skinShadow, { w: 0, heavy: 0 });
+  line(T([[0.6, -166], [1.7, -159.6], [-0.7, -158.8]]), 1);
+  if (p.mouth > 0.05) {
+    const m = p.mouth;
+    ink(T([[-3.6, -156.4], [0, -157.2], [3.6, -156.4], [2.7, -156 + 5 * m], [0, -155.2 + 5.8 * m], [-2.7, -156 + 5 * m]]), '#2A0A06', { w: 1.2, heavy: 0 });
+    if (m > 0.3) line(T([[-2.6, -155.6], [2.6, -155.6]]), 1.3, C.sandLight, false);
+  } else line(T([[-3.2, -155], [0, -154.5], [3.2, -155.2]]), 1.1);
+  for (const s of [-1, 1]) {
+    ink(T([[s * 12.9, -168.6], [s * (7.4 + ck), -167.6], [s * (6.4 + ck * 1.4), -160.5], [s * (5 + ck), -153.5], [s * 7.8, -150.6], [s * 11.8, -154], [s * 13.4, -161]]), ic, { shade: [is, s > 0 ? 3.6 : 1.6, 1.5], rim: [C.ironLight, 1.2, 1], w: 1.3 });
+    if (DET) { dot(s * 10, -163.6 + y, 0.95); dot(s * 9, -156.6 + y, 0.95); }
+  }
+  ink(T([[-13.1, -169], [-12.7, -175], [-8.3, -180.4], [0, -182.5], [8.3, -180.4], [12.7, -175], [13.1, -169]]), ic, { shade: [is, 6, 3.4], deep: [2.4, 1.6], rim: [silver ? '#FFFFFF' : C.ironLight, 2.6, 2.6], w: 1.6, heavy: 1.4 });
+  for (const s of [-1, 1]) {
+    line(T([[s * 0.8, -173.4], [s * 4.6, -175.3], [s * 8.6, -174.5], [s * 10.3, -172.5], [s * 9, -171.9]]), 0.9);
+    if (DET) line(T([[s * 1, -174.4], [s * 4.6, -176.3], [s * 8.4, -175.5]]), 0.8, C.ironLight);
+  }
+  ink(T([[-13.8, -171.8, 1], [13.8, -171.8, 1], [14.6, -168.6, 1], [-14.6, -168.6, 1]]), ic, { smooth: false, shade: [is, 4, 1.2], w: 1.3 });
+  line(T([[-14.3, -169.1], [14.3, -169.1]]), 1.3, C.brass, false);
+  for (const s of [-1, 1]) ink(T(ellipsePts(s * 13.4, -165.6, 1.6, 2.4, 8)), C.brass, { w: 0.9, heavy: 0.5 });
+
+  if (p.kind === 'cent') {
+    // Transverse crest of red horsehair, ear to ear
+    ink(T([[-23.4, -176], [-19.4, -188.4], [-9.6, -195.4], [0, -197.2], [9.6, -195.4], [19.4, -188.4], [23.4, -176], [15, -180.8], [0, -183.6], [-15, -180.8]]), C.red, { shade: [C.redShadow, 6, 3], deep: [2.4, 1.2], rim: [C.redLight, 2, 2.4], w: 1.6 });
+    for (let k = -4; k <= 4; k++) { const a = -Math.PI / 2 + k * 0.3; line(T([[Math.cos(a) * 6, -184 + Math.sin(a) * 2], [Math.cos(a) * 19, -183 + Math.sin(a) * 11]]), 0.6); }
+    ink(T(rrPts(-3.2, -185, 6.4, 3, 0.8)), C.brass, { smooth: false, w: 1, heavy: 0.5 });
+  } else if (p.kind === 'vex' || p.kind === 'corn') {
+    // Animal pelt worn over the helmet by standard bearers and musicians
+    ink(T([[-16.6, -167], [-15, -178.4], [-9.6, -186.6], [0, -188.8], [9.6, -186.6], [15, -178.4], [16.6, -167], [21.4, -150.6], [15.2, -147.2], [10.6, -160], [9.4, -166.6], [0, -169.8], [-9.4, -166.6], [-10.6, -160], [-15.2, -147.2], [-21.4, -150.6]]),
+      C.fur, { shade: [C.furShadow, 5, 2], deep: [2, 1], rim: ['#77573C', 2, 2], w: 1.5 });
+    for (const s of [-1, 1]) ink(T([[s * 6.4, -186], [s * 10.4, -192.6], [s * 12.2, -185]]), C.fur, { shade: [C.furShadow, 1.4, 1], w: 1.2 });
+    for (let x = -7.5; x <= 7.5; x += 2.5) ink(T([[x - 1, -169.4, 1], [x + 1, -169.4, 1], [x, -166.8, 1]]), C.sandLight, { smooth: false, w: 0.6, heavy: 0 });
+    if (DET) for (let k = 0; k < 9; k++) { const x = -13 + k * 3.2; line(T([[x, -176 + Math.abs(x) * 0.3], [x + 1.2, -172 + Math.abs(x) * 0.3]]), 0.6, C.furShadow); }
+  } else {
+    dot(0, -183.6 + y, 1.7, C.brass, 0.9);
+  }
+}
+
+function drawBanner(x0, yTop, t, reveal) {
+  drawBannerTexture(reveal, BOIL);
+  const n = 12, sw = BAN_W / n;
+  const sway = Math.sin(t * 1.25) * 2.4;
+  for (let i = 0; i < n; i++) {
+    const u = (i + 0.5) / n;
+    const ph = u * Math.PI * 2 * 1.15 - t * 3.1;
+    const dz = 4.2 * Math.sin(ph), slope = Math.cos(ph);
+    const dxT = -KX * dz * 0.25, dyT = KZ * dz * 0.25, dxB = -KX * dz, dyB = KZ * dz;
+    g.save();
+    g.transform(1, 0, (sway + dxB - dxT) / BAN_H, 1 + (dyB - dyT) / BAN_H, x0 + i * sw + dxT, yTop + dyT);
+    g.drawImage(bannerCv, BPAD + i * sw * BPX, 0, sw * BPX + 1, bannerCv.height, 0, -BPAD / BPX, sw + 0.12, bannerCv.height / BPX);
+    if (slope < -0.3) { g.fillStyle = 'rgba(46,6,6,.42)'; g.fillRect(0, 0, sw + 0.12, 67); }       // cel shadow in the fold
+    else if (slope > 0.75) { g.fillStyle = 'rgba(255,214,160,.13)'; g.fillRect(0, 0, sw + 0.12, 67); }
+    g.restore();
+  }
+  // Crossbar, end caps and ribbons
+  ink([[x0 - 3, yTop - 2.4, 1], [x0 + BAN_W + 3, yTop - 2.4, 1], [x0 + BAN_W + 3, yTop + 0.8, 1], [x0 - 3, yTop + 0.8, 1]], C.wood, { smooth: false, shade: [C.woodShadow, 0, 1.2], w: 1.2 });
+  for (const ex of [x0 - 3, x0 + BAN_W + 3]) {
+    dot(ex, yTop - 0.8, 1.9, C.brass, 1);
+    const sw2 = Math.sin(t * 2.2 + ex) * 2.6;
+    ink([[ex - 1.1, yTop], [ex + 1.1, yTop], [ex + 1.4 + sw2, yTop + 30], [ex - 0.6 + sw2, yTop + 31]], C.red, { shade: [C.redShadow, 1, 0], w: 1 });
+    ink(ellipsePts(ex + 0.4 + sw2, yTop + 32.4, 1.4, 1.9, 8), C.gold, { w: 0.9, heavy: 0.4 });
+  }
+}
+
+function cornu(by) {
+  const cx = 5, cy = -126 + by, R = 44;
+  const ring = (a0, a1) => { const p = new Path2D(); p.arc(cx, cy, R, a0, a1); return p; };
+  const p = ring(-1.15, 4.1);
+  g.lineCap = 'round';
+  g.lineWidth = 4.8 + 2.6 * PX; g.strokeStyle = INK; g.stroke(p);
+  g.lineWidth = 4.8; g.strokeStyle = C.bronze; g.stroke(p);
+  g.save(); g.translate(1.2, 1.2); g.lineWidth = 1.8; g.strokeStyle = C.bronzeShadow; g.stroke(p); g.restore();
+  const hl = ring(2.6, 4.1); g.save(); g.translate(-1, -1); g.lineWidth = 1; g.strokeStyle = C.goldLight; g.stroke(hl); g.restore();
+  // Wooden brace across the circle
+  ink([[cx - 37, cy + 18, 1], [cx + 30, cy - 33, 1], [cx + 31.6, cy - 31, 1], [cx - 35.4, cy + 20.4, 1]], C.wood, { smooth: false, shade: [C.woodShadow, 0.6, 1.2], w: 1.2 });
+  // Bell flaring up and forward over the right shoulder
+  const a = -1.15, ex = cx + Math.cos(a) * R, ey = cy + Math.sin(a) * R;
+  ink([[ex - 2.4, ey + 1], [ex + 2.6, ey + 2.4], [ex + 15, ey - 14], [ex + 22.6, ey - 26.6], [ex + 6, ey - 31], [ex + 3.4, ey - 17]], C.bronze, { shade: [C.bronzeShadow, 3.2, 2], rim: [C.goldLight, 1.4, 1.4], w: 1.5 });
+  ink(ellipsePts(ex + 14.4, ey - 28.8, 9, 3.6, 14, -0.27), C.bronzeShadow, { w: 1.5, heavy: 1 });
+  ink(ellipsePts(ex + 14.4, ey - 28.6, 6.4, 2.2, 12, -0.27), '#2A1A0A', { w: 0.8, heavy: 0 });
+  return { bell: [ex + 14.4, ey - 30], mouth: [cx + Math.cos(4.1) * R, cy + Math.sin(4.1) * R] };
+}
+
+// p: { kind, feet:[[x,y],[x,y]], hip:[x,y], armL, armR, raise, mouth, cheeks, skirt, t, reveal }
+function drawFront(p) {
+  const hx = p.hip[0], by = p.hip[1];
+  for (let i = 0; i < 2; i++) { const s = i ? 1 : -1; legFront([hx + s * 8.6, -86 + by], p.feet[i], s, p.kind); }
+
+  if (p.kind === 'vex') {
+    // Standard pole first, then the banner hangs in front of it
+    const px = -23.6;
+    ink([[px - 1.4, 2], [px + 1.4, 2], [px + 1.4, -268], [px - 1.4, -268]], C.wood, { smooth: false, shade: [C.woodShadow, 1.2, 0], w: 1.2 });
+    ink([[px, -286, 1], [px + 2.8, -274, 1], [px, -268, 1], [px - 2.8, -274, 1]], C.iron, { smooth: false, shade: [C.ironShadow, 1.4, 1], rim: [C.ironLight, 0.8, 0.8], w: 1.2 });
+    dot(px, -267, 2.2, C.brass, 1);
+  }
+  ink(off([[-19, -104, 1], [19, -104, 1], [24 + (p.skirt || 0), -54], [12, -51.5], [0, -53], [-12, -51.5], [-24 + (p.skirt || 0), -54]], by), C.red, { shade: [C.redShadow, 7, 2], deep: [2.4, 0.6], rim: [C.redLight, 2.4, 0], w: 1.6 });
+  line(off([[-8, -96], [-10, -54]], by), 0.7); line(off([[3, -96], [4, -53]], by), 0.7); line(off([[12, -95], [15, -53]], by), 0.7);
+
+  const centurion = p.kind === 'cent';
+  if (centurion) { gladius(21.5, by, -1); pugio(-20.6, by, -1); }   // centurions wear the sword on the left
+  else { gladius(-21.5, by, 1); pugio(20.6, by, 1); }
+
+  if (p.kind === 'leg') segmentataFront(by);
+  else if (centurion) scaleFront(by);
+  else mailFront(by);
+  beltFront(by);
+  apronFront(by, p.skirt || 0);
+
+  let horn = null;
+  if (p.kind === 'corn') horn = cornu(by);
+
+  const armR = p.armR || 'side', armL = p.armL || 'side';
+  let handR = null;
+  if (armR !== 'none') handR = armFront(-1, armR, p.raise || 0, by);
+  if (armL !== 'none' && armL !== 'shield') armFront(1, armL, p.raise || 0, by);
+  if (p.kind === 'leg') lamesFront(by);
+
+  if (centurion && handR) {
+    // Vine stick (vitis), gnarled, held at the side
+    const a = [handR[0] - 7, handR[1] + 34], b = [handR[0] + 6, handR[1] - 52];
+    ink(limb(a, b, 2.6, 2.2, 0.6), C.wood, { shade: [C.woodShadow, 1, 0.4], w: 1.2 });
+    for (const t of [0.22, 0.5, 0.78]) dot(lerp(a[0], b[0], t) + 1, lerp(a[1], b[1], t), 1.3, C.woodShadow, 0.8);
+    ink(ellipsePts(handR[0], handR[1] + 1.4, 4.3, 4.7, 10), C.skin, { shade: [C.skinShadow, 1.8, 1.5], w: 1.3 });
+  }
+  ink(off([[-9, -146.6], [0, -145], [9, -146.6], [8.6, -151.2], [0, -150.2], [-8.6, -151.2]], by), C.wool, { shade: [C.woolShadow, 2.6, 1.6], w: 1.3 });
+  ink(off([[-1.6, -147], [2.2, -147.4], [3.2, -140], [-0.6, -139.4]], by), C.wool, { shade: [C.woolShadow, 1.2, 1], w: 1.1 });
+  headFront(by, p);
+
+  if (horn) {
+    // Mouthpiece leads from the ring to the lips
+    trimLine([[horn.mouth[0], horn.mouth[1]], [-6, -150 + by], [0, -154.6 + by]], C.bronze, 2.2, false, true);
+  }
+  if (p.kind === 'vex') drawBanner(-23.6 - BAN_W / 2, -245, p.t || 0, p.reveal || 0);
+  if (p.kind === 'vex' && handR) ink(ellipsePts(handR[0], handR[1] + 1.4, 4.3, 4.7, 10), C.skin, { shade: [C.skinShadow, 1.8, 1.5], w: 1.3 });
+}
+
+// Profile, facing screen right. feet[0] is the near (right) foot.
+function drawProfile(p) {
+  const by = p.hip[1], hx = p.hip[0], sw = p.skirt || 0;
+  if (p.shieldBack) {
+    // Scutum on the far (left) arm: we see its back, offset into depth
+    g.drawImage(SPR.back[BOIL], -27 + 7.6 - SPAD / SPX, -151 - 9.2 + by - SPAD / SPX, SH_W + 2 * SPAD / SPX, SH_H + 2 * SPAD / SPX);
+  }
+  legProfile([hx - 1.5, -86 + by], p.feet[1], true, p.kind);
+  legProfile([hx + 1.5, -86 + by], p.feet[0], false, p.kind);
+  ink(off([[-13, -104, 1], [13.5, -104, 1], [18 + sw, -55], [2 + sw * 0.5, -52.4], [-16 + sw, -56]], by), C.red, { shade: [C.redShadow, 5, 2], rim: [C.redLight, 2, 0], w: 1.6 });
+  line(off([[2, -97], [3 + sw * 0.4, -53.4]], by), 0.7);
+  for (let i = 0; i < 5; i++) {
+    const yb = -100.6 - i * 5 + by;
+    ink([[-12.6 - i * 0.45, yb - 5.8, 1], [0, yb - 5.4], [13.6 + i * 0.55, yb - 4.4, 1], [14.1 + i * 0.55, yb + 1.4, 1], [0, yb + 0.5], [-13.1 - i * 0.45, yb, 1]], C.iron, { shade: [C.ironShadow, 5, 2], deep: [2, 0.8], rim: [C.ironLight, 2, 1.3], w: 1.3, heavy: 1.1 });
+  }
+  ink(off([[-15, -125.6, 1], [16, -124.4, 1], [15, -137], [10, -146.6], [-8, -148.6], [-15.6, -140]], by), C.iron, { shade: [C.ironShadow, 4.5, 2], rim: [C.ironLight, 2.2, 1.4], w: 1.3 });
+  ink(rrPts(3, -133 + by, 5.2, 3, 0.6), C.brass, { smooth: false, w: 0.8, heavy: 0.5 });
+  ink(off([[-13.6, -105, 1], [14.6, -105, 1], [14.8, -99.4, 1], [-13.8, -99.4, 1]], by), C.brass, { smooth: false, shade: [C.brassShadow, 2, 1.4], w: 1.3 });
+  for (let i = 0; i < 4; i++) {
+    const a = [9 + i * 2.2, -100 + by], b = [9 + i * 2.2 + sw * 0.4, -74 + (i % 2) * 2 + by];
+    ink(limb(a, b, 2.6, 2.4), C.leather, { shade: [C.leatherShadow, 1, 0], w: 1, heavy: 0.6 });
+    if (DET) for (const t of [0.25, 0.55, 0.8]) dot(lerp(a[0], b[0], t), lerp(a[1], b[1], t), 0.9, C.brass, 0.5);
+  }
+  // Gladius on the near (right) hip
+  {
+    const top = [7, -101 + by], bot = [-6.4, -55 + by];
+    ink(limb(top, bot, 5.8, 4.6), C.leather, { shade: [C.leatherShadow, 2, 1], w: 1.4 });
+    for (const t of [0.1, 0.34]) { const q = [lerp(top[0], bot[0], t), lerp(top[1], bot[1], t)]; ink(limb([q[0] - 1, q[1] - 1], [q[0] + 1, q[1] + 1.2], 6.4, 6.4), C.brass, { w: 0.9, heavy: 0.5 }); }
+    ink(limb([bot[0] + 1, bot[1] - 3], [bot[0] - 0.6, bot[1] + 2.4], 5, 2), C.brass, { w: 1, heavy: 0.5 });
+    ink(ellipsePts(8.6, -103.4 + by, 2, 4.4, 10, 0.3), C.sandLight, { shade: [C.sandShadow, 1, 1], w: 1.1 });
+    ink(limb([9, -104 + by], [11, -111 + by], 3.2, 3), C.sand, { shade: [C.sandShadow, 1, 0], w: 1 });
+    ink(ellipsePts(11.4, -113 + by, 2.8, 2.2, 10), C.sandLight, { shade: [C.sandShadow, 1, 1], w: 1.1 });
+  }
+  // Near arm swings with the stride
+  const a = p.armSwing || 0, sh = [0.5, -140 + by];
+  const el = [sh[0] + Math.sin(a) * 29, sh[1] + Math.cos(a) * 29];
+  const ha = [el[0] + Math.sin(a + 0.35) * 25, el[1] + Math.cos(a + 0.35) * 25];
+  const mid = [lerp(sh[0], el[0], 0.5), lerp(sh[1], el[1], 0.5)];
+  ink(limb(sh, mid, 12, 10.5), C.red, { shade: [C.redShadow, 2, 1], w: 1.3 });
+  ink(limb(mid, el, 9.6, 8.4, 1, 1), C.skin, { shade: [C.skinShadow, 2.4, 1], w: 1.3 });
+  ink(limb(el, ha, 8.4, 6.2, 1.2, 1), C.skin, { shade: [C.skinShadow, 2.4, 1], rim: [C.sandLight, 1, 0], w: 1.4 });
+  ink(ellipsePts(ha[0], ha[1] + 1.2, 4.2, 4.6, 10), C.skin, { shade: [C.skinShadow, 1.6, 1.4], w: 1.3 });
+  for (let j = 3; j >= 0; j--) ink([[-11.6, -146 + j * 3.6 + by], [0, -152.6 + j * 3.8 + by], [11.6, -146 + j * 3.6 + by], [10.6, -141.8 + j * 3.6 + by], [0, -148 + j * 3.8 + by], [-10.6, -141.8 + j * 3.6 + by]], C.iron, { shade: [C.ironShadow, 2, 2], rim: [C.ironLight, 0.6, 1.2], w: 1.25, heavy: 1 });
+  ink(off([[-7, -146], [8, -146.4], [9.4, -151], [-6, -151.6]], by), C.wool, { shade: [C.woolShadow, 1.6, 1.4], w: 1.2 });
+  ink(off([[8, -148], [10.8, -147.4], [11, -141], [8.6, -141.4]], by), C.wool, { shade: [C.woolShadow, 1, 1], w: 1.1 });
+  ink(limb([1.5, -146 + by], [2.2, -154 + by], 10, 10), C.skin, { shade: [C.skinShadow, 2.6, 0], w: 1.3 });
+
+  const T = pts => off(pts, by);
+  ink(T([[-6, -166.6], [-12, -166], [-21.6, -158.6], [-21, -155], [-12, -157.6], [-5, -160]]), C.iron, { shade: [C.ironShadow, 3, 2], w: 1.3 });
+  line(T([[-20.6, -155.6], [-12, -158.2], [-5.6, -160.6]]), 1.1, C.brass);
+  ink(T([[4, -171], [9.6, -170], [10, -166], [13.3, -162.5], [10.6, -161], [11.1, -158], [9.9, -156], [10.7, -154], [8.9, -151], [3, -150], [-1, -153], [0, -166]]), C.skin, { shade: [C.skinShadow, 3.2, 1], rim: [C.sandLight, 1, 0.6], w: 1.4 });
+  const brow = T([[3, -170.6, 1], [11, -170, 1], [10.6, -165.6], [6, -164.8], [3, -165.4]]);
+  ink(brow, C.skinShadow, { w: 0, heavy: 0 });
+  halftone(brow);
+  ink(T(ellipsePts(8, -165.6, 1.7, 0.85, 8)), INK, { w: 0, heavy: 0 });
+  line(T([[9.4, -155.2], [11, -155.4]]), 1);
+  ink(T([[-2, -168.4], [5.2, -167.8], [6.6, -160.4], [5.6, -152.4], [1, -150.4], [-3, -156.4]]), C.iron, { shade: [C.ironShadow, 2.4, 1.4], rim: [C.ironLight, 1, 1], w: 1.3 });
+  if (DET) { dot(1.6, -163, 0.9); dot(2.2, -156, 0.9); }
+  ink(T([[-11.2, -168.2], [-10.2, -176], [-4.2, -181.2], [3, -182.4], [9, -178.4], [11.6, -171.4], [11, -169]]), C.iron, { shade: [C.ironShadow, 5, 3.2], deep: [2, 1.4], rim: [C.ironLight, 2.4, 2.4], w: 1.6, heavy: 1.4 });
+  line(T([[7, -176.6], [9.4, -174.4], [10.4, -172.2]]), 0.9);
+  ink(T([[4.6, -171.8, 1], [14.8, -170.8, 1], [14.4, -168.8, 1], [4.6, -169.4, 1]]), C.iron, { smooth: false, shade: [C.ironShadow, 1, 1], w: 1.2 });
+  line(T([[-11, -169.2], [4.6, -169.6], [14.4, -169]]), 1.2, C.brass);
+  ink(T(ellipsePts(-4, -164.6, 1.6, 2.4, 8)), C.brass, { w: 0.9, heavy: 0.5 });
+  dot(0, -183.4 + by, 1.6, C.brass, 0.9);
+}
+
+/* =============================================================================
+   The century: 32 legionaries, 8 files wide and 4 ranks deep.
+   r = 0 is the front rank; f = 0 is the left file as seen by the camera.
+   ============================================================================= */
+const STRIDE = 0.9, CYCLES = 4, SM = 2 * STRIDE * CYCLES;     // march distance (m)
+const MARCH_DX = 1.0, MARCH_DZ = 0.9, TIGHT_DX = 0.62, TIGHT_DZ = 0.72;
+const haltX = f => (f - 3.5) * MARCH_DX, haltZ = r => (1.5 - r) * MARCH_DZ;
+const tightX = f => (f - 3.5) * TIGHT_DX, tightZ = r => (1.5 - r) * TIGHT_DZ;
+
+const MEN = [];
+for (let f = 0; f < 8; f++) for (let r = 0; r < 4; r++) {
+  const R = rng(f * 31 + r * 7 + 3);
+  MEN.push({
+    id: MEN.length, f, r,
+    role: r === 0 ? 'front' : (f === 0 || f === 7) ? 'side' : r === 3 ? 'rear' : 'roof',
+    side: f === 7 ? 1 : -1,
+    d: R() * 0.022,                 // slight human timing stagger, kept tight
+    ph: R() * Math.PI * 2, ph2: R(),
+  });
+}
+// Command group stands outside the formation in full sun: beside it on wide
+// screens, in front of its left corner on portrait screens so the shot stays large.
+const CMD = [
+  { kind: 'vex', X: -3.75, Z: 1.75, ph: 2.3 },
+  { kind: 'cent', X: -3.3, Z: 2.45, ph: 0.4 },
+  { kind: 'corn', X: -4.25, Z: 2.62, ph: 1.1 },
+];
+const CMD_LAND = [[-3.75, 1.75], [-3.3, 2.45], [-4.25, 2.62]];
+const CMD_PORT = [[-1.25, 3.9], [-0.35, 4.3], [0.7, 4.45]];
+
+const SLAM = { ant: 0.09, fast: 0.06, settle: 0.2, a: 0.16, over: 0.05, ease: 'in' };
+const FLANK = { ant: 0.08, fast: 0.1, settle: 0.22, a: 0.14, over: 0.08, ease: 'in' };
+const RAISE = { ant: 0.11, fast: 0.12, settle: 0.24, a: 0.2, over: 0.07, ease: 'out' };
+
+function marchCurve(u) {
+  const a = 0.15;
+  if (u <= 1 - a) return u / (1 - a / 2);
+  return 1 - (1 - u) * (1 - u) / (a * (2 - a));
+}
+function footCycle(phi) {
+  if (phi < 0.5) return [STRIDE / 2 - (phi / 0.5) * STRIDE, 0];
+  const u = (phi - 0.5) / 0.5;
+  return [-STRIDE / 2 + E.sine(u) * STRIDE, Math.sin(Math.PI * u) * 0.11];
+}
+const frac = x => x - Math.floor(x);
+
+let stompStart = null;
+function stompAt(t) {
+  const z = { dz: 0, bob: 0, fz: [0, 0], fl: [0, 0], up: 0 };
+  if (stompStart === null || t < stompStart) return z;
+  const u = t - stompStart;
+  const ant = inv(0, 0.14, u), s1 = inv(0.14, 0.28, u), s2 = inv(0.3, 0.5, u);
+  z.fz[0] = 0.3 * E.inQ(s1); z.fl[0] = Math.sin(Math.PI * Math.pow(s1, 0.7)) * 0.13;
+  z.fz[1] = 0.3 * E.inOut(s2); z.fl[1] = Math.sin(Math.PI * s2) * 0.06;
+  z.dz = 0.15 * E.inOut(s1) + 0.15 * E.inOut(s2);
+  z.bob = -1.8 * Math.sin(Math.PI * ant) * (u < 0.14 ? 1 : 0) + 3.2 * Math.sin(Math.PI * inv(0.28, 0.46, u));
+  z.up = 0.025 * Math.sin(Math.PI * inv(0, 0.3, u));
+  return z;
+}
+
+// Full pose of one legionary at (quantised) time t.
+function manState(m, t, T) {
+  const s = { m, view: 'front', face: 1, X: 0, Z: 0, feet: [[0, 0], [0, 0]], lift: [0, 0], bob: 0, sway: 0, armSwing: 0, skirt: 0, raise: 0, armL: 'side', armR: 'side', shield: null, pass: 'body', shieldBack: false, crouch: 0 };
+  const hx = haltX(m.f), hz = haltZ(m.r), tx = tightX(m.f), tz = tightZ(m.r);
+
+  if (t < T.marchEnd) {
+    const u = inv(T.marchStart, T.marchEnd, t);
+    const sd = SM * marchCurve(u);
+    const speed = u <= 0.85 ? 1 : (1 - u) / 0.15;
+    s.X = hx - STRIDE / 2 - SM + sd; s.Z = hz;
+    const phi0 = frac(sd / (2 * STRIDE));
+    for (let k = 0; k < 2; k++) {
+      const [x, lift] = footCycle(frac(sd / (2 * STRIDE) + k * 0.5));
+      s.feet[k] = [s.X + x, s.Z + (k === 0 ? 0.11 : -0.11)]; s.lift[k] = lift;
+    }
+    s.bob = 2.4 * (0.5 + 0.5 * Math.cos(4 * Math.PI * phi0)) * speed;
+    s.armSwing = -Math.cos(2 * Math.PI * phi0) * 0.3 * speed;
+    s.skirt = Math.sin(2 * Math.PI * phi0) * 2.4 * speed;
+    s.view = 'profile'; s.shieldBack = true;
+    return s;
+  }
+  if (t < T.turn + 0.07) {
+    // Closing half step, then stand to attention before the turn
+    const u = inv(T.marchEnd, T.marchEnd + 0.24, t);
+    s.feet[0] = [hx, hz + 0.11];
+    s.feet[1] = [lerp(hx - STRIDE, hx, E.inOut(u)), hz - 0.11]; s.lift[1] = Math.sin(Math.PI * u) * 0.1;
+    s.X = (s.feet[0][0] + s.feet[1][0]) / 2; s.Z = hz;
+    s.bob = t > T.turn ? -1.2 : 0;
+    s.view = 'profile'; s.shieldBack = true;
+    return s;
+  }
+
+  // Facing the camera: right face, close ranks, lock shields
+  s.view = t < T.turn + 0.15 ? 'squash' : 'front';
+  const st = stompAt(t);
+  const c0 = T.close + m.d * 1.5 + Math.abs(m.f - 3.5) * 0.008;
+  for (let k = 0; k < 2; k++) {
+    const sx = k ? 0.12 : -0.12;
+    const t0 = c0 + k * 0.15, u = inv(t0, t0 + 0.2, t);
+    const from = [hx + sx, hz], to = [tx + sx, tz];
+    const e = E.inOut(u);
+    s.feet[k] = [lerp(from[0], to[0], e), lerp(from[1], to[1], e) + st.fz[k]];
+    s.lift[k] = Math.sin(Math.PI * u) * 0.08 + st.fl[k];
+  }
+  s.X = (s.feet[0][0] + s.feet[1][0]) / 2;
+  s.Z = (s.feet[0][1] + s.feet[1][1]) / 2;
+  s.crouch = inv(T.slam - 0.1, T.slam + 0.2, t) * (m.role === 'front' ? 6 : m.role === 'side' ? 22 : 6);
+  s.bob = s.crouch + st.bob;
+  if (t > T.rear + 0.7) {
+    s.bob += Math.sin(t * 1.85 + m.ph) * 0.6;                         // breathing
+    const k = Math.floor((t + m.ph2 * 5) / 2.9), w = inv(0, 0.45, frac((t + m.ph2 * 5) / 2.9) * 2.9);
+    s.sway = lerp((hash(m.id, k - 1, 3) - 0.5) * 2.4, (hash(m.id, k, 3) - 0.5) * 2.4, E.inOut(w)); // weight shifts
+  }
+
+  const cy = s.crouch / 100;
+  const C0 = [s.X + 0.24, 0.7 - cy, s.Z + 0.27];
+  const U0 = [0.66, 0, 0], V0 = [0, 1.2, 0];
+  const lift = v => [v[0], v[1] + st.up, v[2] + st.dz];
+  if (m.role === 'front') {
+    const p = act(t, T.slam + m.d, SLAM);
+    s.shield = { C: lift(vlerp(C0, [tx, 0.95 - cy, tz + 0.33], p)), U: U0, V: V0 };
+    s.pass = 'front'; s.armL = 'shield';
+  } else if (m.role === 'side') {
+    const t0 = T.flank + m.d, p = act(t, t0, FLANK), th = p * (Math.PI / 2) * m.side;
+    s.shield = { C: lift(vlerp(C0, [tx + m.side * 0.31, 1.25 - cy, tz], p)), U: [Math.cos(th) * 0.66, 0, -Math.sin(th) * 0.66], V: V0 };
+    s.pass = 'side'; s.armL = 'shield';
+    const u = t - t0;
+    if (u >= 0.16) { s.view = 'profile'; s.face = m.side; }
+    else if (u >= 0.1) s.view = 'squash';
+  } else {
+    const t0 = (m.role === 'rear' ? T.rear : m.r === 1 ? T.roof1 : T.roof2) + m.d + Math.abs(m.f - 3.5) * 0.012;
+    const p = act(t, t0, RAISE);
+    const beta = p * (m.role === 'rear' ? 100 : 80) * Math.PI / 180;
+    const C1 = m.role === 'rear' ? [tx, 1.84, tz + 0.25] : [tx + (m.f === 1 ? -0.05 : m.f === 6 ? 0.05 : 0), m.r === 1 ? 1.8 : 1.86, tz + 0.4];
+    s.shield = { C: lift(vlerp(C0, C1, p)), U: U0, V: [0, Math.cos(beta) * 1.2, -Math.sin(beta) * 1.2] };
+    s.raise = clamp(p);
+    s.pass = p > 0.55 ? 'roof' : 'body';
+    if (p >= 1 && t - t0 > 0.6) { s.armL = 'none'; s.armR = 'none'; }      // hidden under the locked roof
+    else if (s.raise > 0.04) { s.armL = 'raise'; s.armR = 'raise'; } else s.armL = 'shield';
+  }
+  return s;
+}
+
+/* =============================================================================
+   Timeline data: arrows, dust, sound effects, camera. Rebuilt for full/short.
+   ============================================================================= */
+let T = FULL;
+let ARROWS = [], DUST = [], SFX = [], SHAKES = [], BOSSES = [], HELMETS = [];
+
+function shieldNormal(sh) { return vnorm(vcross(sh.U, sh.V)); }
+
+function buildTimeline() {
+  DUST = []; SFX = []; SHAKES = []; ARROWS = []; BOSSES = []; HELMETS = [];
+  const R = rng(T.short ? 77 : 1234);
+
+  // Dust at every footfall of the march (all feet land in sync)
+  if (!T.short) {
+    const prev = MEN.map(() => [0.5, 0]);
+    for (let t = T.marchStart; t < T.marchEnd; t += 1 / 240) {
+      const sd = SM * marchCurve(inv(T.marchStart, T.marchEnd, t));
+      MEN.forEach((m, i) => {
+        for (let k = 0; k < 2; k++) {
+          const ph = frac(sd / (2 * STRIDE) + k * 0.5);
+          if (ph < prev[i][k] - 0.5 && m.r === 0) {
+            const X = haltX(m.f) - STRIDE / 2 - SM + sd + STRIDE / 2;
+            if (hash(m.id, k, Math.round(t * 10)) < 0.75) DUST.push({ t, X, Z: haltZ(m.r) + (k ? -0.11 : 0.11), size: 0.42 + R() * 0.2 });
+          }
+          prev[i][k] = ph;
+        }
+      });
+    }
+    // Only the file nearest the camera raises visible dust; puffs from inner
+    // ranks would be painted over the men in front of them.
+    MEN.filter(m => m.r === 0).forEach(m => {
+      DUST.push({ t: T.marchEnd + 0.24, X: haltX(m.f), Z: haltZ(m.r) - 0.11, size: 0.35 });
+      DUST.push({ t: T.close + 0.36 + m.d, X: tightX(m.f), Z: tightZ(m.r) + 0.05, size: 0.5 });
+    });
+  }
+  // Shield locks: dust at the braced feet, sound effects, camera shake
+  MEN.forEach(m => {
+    if (m.role === 'front') DUST.push({ t: T.slam + m.d + 0.15, X: tightX(m.f), Z: tightZ(m.r) + 0.36, size: 0.7 });
+    if (m.role === 'roof' || m.role === 'rear') {
+      const t0 = (m.role === 'rear' ? T.rear : m.r === 1 ? T.roof1 : T.roof2) + m.d + Math.abs(m.f - 3.5) * 0.012;
+      DUST.push({ t: t0 + RAISE.ant + RAISE.fast, X: tightX(m.f), Z: tightZ(0) + 0.38, size: 0.4 });  // the shell settles onto the front rank's feet
+    }
+  });
+  if (T.slam > 0) {
+    SFX.push({ t: T.slam + 0.16, text: 'CLACK', at: [0.2, 1.75, 1.6], size: 1, rot: -0.1, fill: C.sandLight });
+    SHAKES.push({ t: T.slam + 0.16, amp: 7, dur: 0.45 });
+    [[T.roof1, 0.7, 2.25, 0.5], [T.roof2, -0.4, 2.35, -0.2], [T.rear, 0.9, 2.4, -0.9]].forEach(([t0, x, y, z], i) => {
+      SFX.push({ t: t0 + 0.27, text: 'CLAK', at: [x, y, z], size: 0.58, rot: i % 2 ? 0.12 : -0.08, fill: C.sandLight });
+      SHAKES.push({ t: t0 + 0.27, amp: 3, dur: 0.3 });
+    });
+  }
+
+  // The formed shell, used for arrow targets and the glint sweep
+  const formed = MEN.map(m => ({ m, s: manState(m, T.end + 0.5, T) }));
+  const targets = { roof: [], front: [], side: [] };
+  formed.forEach(({ m, s }) => {
+    const sh = s.shield, N = shieldNormal(sh);
+    if (vdot(N, VIEW) <= 0) return;                     // the left wall faces away from the camera
+    const grp = m.role === 'front' ? 'front' : m.role === 'side' ? 'side' : 'roof';
+    targets[grp].push({ sh, N, m });
+    BOSSES.push(vadd(sh.C, vmul(N, 0.06)));
+    if (m.role === 'front') HELMETS.push([s.X - 0.06, 1.71 - s.crouch / 100, s.Z + 0.08]);
+  });
+
+  // Arrow volley from unseen archers, upper right
+  const n = T.short ? CONFIG.ARROWS_SHORT : CONFIG.ARROWS_FULL;
+  const D = vnorm([1, 0.66, -0.42]);
+  for (let i = 0; i < n; i++) {
+    const t0 = T.volley + Math.pow(R(), 0.85) * T.volleyDur * 0.78;
+    const dur = 0.5 + R() * 0.18;
+    const pick = R();
+    let Ept, N = [0, 1, 0], kind, attach = false;
+    if (pick < 0.95) {
+      const list = pick < 0.6 ? targets.roof : pick < 0.83 ? targets.front : targets.side;
+      const tg = list[Math.floor(R() * list.length)];
+      const u = 0.14 + R() * 0.72, v = 0.12 + R() * 0.76;
+      Ept = vadd(tg.sh.C, vadd(vmul(tg.sh.U, u - 0.5), vmul(tg.sh.V, v - 0.5)));
+      N = tg.N;
+      const k = R();
+      kind = k < 0.6 ? 'stick' : k < 0.85 ? 'glance' : 'split';
+      attach = true;
+    } else {
+      Ept = R() < 0.6 ? [-2 + R() * 5.4, 0, 1.75 + R() * 0.9] : [3 + R() * 1.3, 0, -1.3 + R() * 2.4];
+      kind = 'ground';
+    }
+    const S = vadd(Ept, vadd(vmul(D, 15 + R() * 3), [R() * 2 - 1, R() * 1.4, R() * 2 - 1]));
+    const a = { t0, dur, S, E: Ept, N, kind, attach, h: 1.2 + R() * 0.6 };
+    a.dirIn = vnorm([Ept[0] - S[0], Ept[1] - S[1] - 4 * a.h, Ept[2] - S[2]]);
+    a.ti = t0 + dur;
+    a.perp = vnorm(vcross(a.dirIn, vlen(vcross(a.dirIn, N)) > 0.01 ? N : [0, 0, 1]));
+    if (kind === 'glance' || kind === 'split') {
+      const r = vsub(a.dirIn, vmul(N, 2 * vdot(a.dirIn, N)));
+      const pieces = kind === 'split' ? [{ len: 0.36, head: true, sgn: 1 }, { len: 0.34, head: false, sgn: -1 }] : [{ len: 0.72, head: true, sgn: 1, full: true }];
+      a.pieces = pieces.map(pc => {
+        const v0 = vadd(vadd(vmul(r, 1.5), [0.2 + R() * 0.5, 0.9 + R() * 0.8, 0.7 + R() * 0.6]), vmul(a.perp, pc.sgn * (0.4 + R() * 0.6)));
+        const y0 = Math.max(0.05, Ept[1]);
+        const tl = (v0[1] + Math.sqrt(v0[1] * v0[1] + 19.6 * y0)) / 9.8;
+        return { ...pc, v0, tl, spin: (R() < 0.5 ? -1 : 1) * (10 + R() * 10), axis: vnorm(vcross(a.dirIn, [0, 1, 0.001])) };
+      });
+      if (kind === 'split') a.chips = Array.from({ length: 6 }, () => ({ v: [R() * 3 - 0.5, 1 + R() * 2.4, R() * 2.4 - 0.4], len: 0.05 + R() * 0.08, rot: R() * 6 }));
+      a.pieces.forEach(pc => {
+        const p = vadd(Ept, vadd(vmul(pc.v0, pc.tl), [0, -4.9 * pc.tl * pc.tl, 0]));
+        DUST.push({ t: a.ti + pc.tl, X: p[0], Z: p[2], size: 0.32 });
+      });
+    }
+    if (kind === 'ground') DUST.push({ t: a.ti, X: Ept[0], Z: Ept[2], size: 0.45 });
+    ARROWS.push(a);
+  }
+  ARROWS.sort((a, b) => a.ti - b.ti);
+  // TUNK TUNK lettering on a few well spaced hits
+  let last = -9, count = 0;
+  for (const a of ARROWS) {
+    if (!a.attach || a.ti - last < (T.short ? 0.2 : 0.26) || count >= (T.short ? 3 : 5)) continue;
+    SFX.push({ t: a.ti, text: count % 2 ? 'TUNK!' : 'TUNK', at: vadd(a.E, [0.1, 0.5, 0]), size: 0.5 + R() * 0.12, rot: (R() - 0.5) * 0.4, fill: C.sandLight, life: 0.55 });
+    last = a.ti; count++;
+  }
+  DUST.sort((a, b) => a.t - b.t);
+}
+
+// Camera framing: rectangles in projected metres, eased between keys and fitted
+// (contain) to the viewport so the formation is always fully framed.
+const RECT_LAND = {
+  wide0: [-8.8, -4.2, 5.4, 2.3], wide1: [-7.4, -3.7, 5.4, 2.0],
+  form: [-5.7, -3.0, 3.9, 1.6], vol: [-6.8, -3.9, 5.6, 1.8], hero: [-6.4, -3.05, 4.0, 1.8],
+};
+const RECT_PORT = {
+  wide0: [-7.0, -4.8, 3.9, 3.4], wide1: [-5.8, -4.2, 4.5, 3.0],
+  form: [-3.6, -3.2, 3.8, 2.5], vol: [-4.1, -4.6, 4.6, 2.5], hero: [-3.7, -3.1, 3.8, 2.6],
+};
+let RECT = RECT_LAND;
+function applyLayout() {
+  const port = W / H < 0.9;
+  RECT = port ? RECT_PORT : RECT_LAND;
+  (port ? CMD_PORT : CMD_LAND).forEach(([X, Z], i) => { CMD[i].X = X; CMD[i].Z = Z; });
+}
+function cameraRect(t) {
+  const keys = T.short
+    ? [[0, RECT.form], [0.3, RECT.vol], [1.15, RECT.vol], [1.75, RECT.hero]]
+    : [[0, RECT.wide0], [3.8, RECT.wide1], [4.15, RECT.wide1], [4.75, RECT.form], [6.3, RECT.form], [6.85, RECT.vol], [8.3, RECT.vol], [9.1, RECT.hero]];
+  if (t <= keys[0][0]) return keys[0][1];
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [ta, ra] = keys[i], [tb, rb] = keys[i + 1];
+    if (t <= tb) { const e = E.inOut(inv(ta, tb, t)); return ra.map((v, j) => lerp(v, rb[j], e)); }
+  }
+  return keys[keys.length - 1][1];
+}
+function shakeAt(t) {
+  let x = 0, y = 0;
+  for (const s of SHAKES) {
+    const u = t - s.t;
+    if (u < 0 || u > s.dur) continue;
+    const k = s.amp * Math.pow(1 - u / s.dur, 2);
+    x += Math.sin(u * 61) * k; y += Math.cos(u * 47) * k * 0.8;
+  }
+  return [x, y];
+}
+
+/* =============================================================================
+   Rendering
+   Characters are drawn into an offscreen "cel" 12 times a second (on twos, with
+   line boil). Camera, ground, shadows, arrows, dust, light and lettering are
+   drawn every frame at full rate on top of it.
+   ============================================================================= */
+const canvas = document.getElementById('scene');
+const ctx = canvas.getContext('2d');
+let cel = document.createElement('canvas'), cctx = cel.getContext('2d');
+let celShow = document.createElement('canvas'), celShowCtx = celShow.getContext('2d');
+const shadowCv = document.createElement('canvas'), sctx = shadowCv.getContext('2d');
+const groundTile = makeGroundTile();
+let groundPattern = null;
+let W = 0, H = 0, DPR = 1;
+let REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let celCam = null, celTq = -1, celDirty = true;     // camera/time of the cel being drawn
+let showCam = null, showTq = -1, celJob = null;      // camera/time of the cel on screen
+let lastStates = [], lastCmd = [];
+const CEL_M = 0.1;
+const CEL_BUDGET = 7;    // ms of character drawing per frame
+
+function resize() {
+  W = Math.max(320, window.innerWidth); H = Math.max(320, window.innerHeight);
+  DPR = Math.min(CONFIG.DPR_MAX, window.devicePixelRatio || 1);
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  shadowCv.width = canvas.width; shadowCv.height = canvas.height;
+  for (const c of [cel, celShow]) { c.width = Math.ceil(W * (1 + 2 * CEL_M) * DPR); c.height = Math.ceil(H * (1 + 2 * CEL_M) * DPR); }
+  celJob = null;
+  groundPattern = ctx.createPattern(groundTile, 'repeat');
+  applyLayout();
+  celDirty = true;
+  if (mode === 'static') render(staticT);
+}
+
+function panelRect(t) {
+  const base = Math.min(14, W * 0.025);
+  const gut = T.short || t >= T.fullFrame + 0.25 ? 0 : t < T.fullFrame ? base : lerp(base, 0, E.inOut(inv(T.fullFrame, T.fullFrame + 0.25, t)));
+  return { x: gut, y: gut, w: W - 2 * gut, h: H - 2 * gut };
+}
+function fitCamera(rect, panel) {
+  const top = 56, bottom = 100;
+  const fx = panel.x + 10, fy = panel.y + top, fw = panel.w - 20, fh = Math.max(120, panel.h - top - bottom);
+  const rw = rect[2] - rect[0], rh = rect[3] - rect[1];
+  const z = Math.min(fw / rw, fh / rh);
+  return { z, cx: (rect[0] + rect[2]) / 2, cy: (rect[1] + rect[3]) / 2, ox: fx + fw / 2, oy: fy + fh / 2 };
+}
+const toScreen = (cam, p) => { const q = projP(p[0], p[1], p[2]); return [cam.ox + (q[0] - cam.cx) * cam.z, cam.oy + (q[1] - cam.cy) * cam.z]; };
+
+// ----- Cel layer -----
+function celXY(px, py) {
+  return [((px - celCam.cx) * celCam.z + celCam.ox - celCam.originX) * DPR, ((py - celCam.cy) * celCam.z + celCam.oy - celCam.originY) * DPR];
+}
+function figTransform(X, Z, mir, scale = 1) {
+  const [px, py] = projP(X, 0, Z);
+  const [sx, sy] = celXY(px, py);
+  const k = (celCam.z * DPR / 100) * scale;
+  g.setTransform(k * mir, 0, 0, k, sx, sy);
+  PX = DPR / k; JIT = REDUCED ? 0 : CONFIG.BOIL_PX * DPR / k; DET = k / DPR > 2.4; LOD = k / DPR < 1.25;
+  scalePatterns();
+}
+function planeSprite(img, Cw, U, V) {
+  const z = celCam.z * DPR, pu = projD(U), pv = projD(V);
+  const corner = vadd(vsub(Cw, vmul(U, 0.5)), vmul(V, 0.5));
+  const q = projP(corner[0], corner[1], corner[2]);
+  const [ox, oy] = celXY(q[0], q[1]);
+  g.setTransform(pu[0] * z / SH_W, pu[1] * z / SH_W, -pv[0] * z / SH_H, -pv[1] * z / SH_H, ox, oy);
+  g.drawImage(img, -SPAD / SPX, -SPAD / SPX, SH_W + 2 * SPAD / SPX, SH_H + 2 * SPAD / SPX);
+}
+function drawShieldW(sh, gold = 0) {
+  const N = shieldNormal(sh);
+  const facing = vdot(N, VIEW) > 0, lit = vdot(N, SUN) > 0.08;
+  planeSprite(SPR.edge, vsub(sh.C, vmul(N, 0.035)), sh.U, sh.V);
+  planeSprite(facing ? (lit ? SPR.lit[BOIL] : SPR.shade[BOIL]) : SPR.back[BOIL], sh.C, sh.U, sh.V);
+  if (gold > 0) {
+    // Loading progress: the roof fills in with gold inked rims, tile by tile
+    const sc = Math.hypot(...projD(sh.U)) * celCam.z * DPR / SH_W;
+    const w = (2.4 * DPR) / sc;
+    g.lineJoin = 'round';
+    g.lineWidth = w + (2.2 * DPR) / sc; g.strokeStyle = INK; g.strokeRect(1.6, 1.6, SH_W - 3.2, SH_H - 3.2);
+    g.lineWidth = w; g.strokeStyle = C.gold; g.strokeRect(1.6, 1.6, SH_W - 3.2, SH_H - 3.2);
+    if (gold > 1) { g.fillStyle = 'rgba(246,215,122,.28)'; g.fillRect(2.4, 2.4, SH_W - 4.8, SH_H - 4.8); }
+  }
+}
+// Roof tiles in the order they fill: front roof rank left to right, then back.
+const ROOF_ORDER = MEN.filter(m => m.role === 'roof' || m.role === 'rear').sort((a, b) => a.r - b.r || a.f - b.f).map(m => m.id);
+function poseOf(s, mir) {
+  return {
+    kind: 'leg',
+    feet: s.feet.map(([fx, fz], k) => [((fx - s.X) - KX * (fz - s.Z)) * 100 * mir, (KZ * (fz - s.Z) - s.lift[k]) * 100]),
+    hip: [s.sway, s.bob], armL: s.armL, armR: s.armR, raise: s.raise, skirt: s.skirt, armSwing: s.armSwing, shieldBack: s.shieldBack,
+  };
+}
+function drawMan(s) {
+  const mir = s.view === 'profile' ? s.face : 1;
+  figTransform(s.X, s.Z, mir);
+  const p = poseOf(s, mir);
+  if (s.view === 'profile') drawProfile(p);
+  else { if (s.view === 'squash') g.scale(0.72, 1); drawFront(p); }
+}
+function cmdState(c, t) {
+  const breath = Math.sin(t * 1.7 + c.ph) * 0.7;
+  const p = { kind: c.kind, feet: [[-11, 0], [11, 0]], hip: [0, breath], armL: 'side', armR: 'side', t, mouth: 0, cheeks: 0, reveal: 0 };
+  if (c.kind === 'cent') {
+    p.armR = 'vitis';
+    if (!T.short && t > FULL.panel2[0] && t < FULL.panel3[0] + 0.2) p.mouth = Math.floor(t * 12) % 2 ? 0.75 : 0.95;
+  }
+  if (c.kind === 'vex') { p.armR = 'pole'; p.reveal = E.out(inv(T.word, T.word + 0.85, t)); }
+  if (c.kind === 'corn') { p.armR = 'horn'; p.armL = 'horn'; if (!T.short && t > FULL.panel3[0] && t < FULL.panel3[1]) p.cheeks = 1; }
+  return p;
+}
+
+function* celWork(tq, cam) {
+  const boil = REDUCED ? 0 : Math.floor(tq * CONFIG.DRAW_FPS) % 3;
+  // Drawing globals are restored after every yield, since panels share them.
+  const resume = () => { g = cctx; BOIL = boil; BSEED = boil * 17.3; LOD = false; };
+  resume();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, cel.width, cel.height);
+  celCam = { ...cam, originX: -W * CEL_M, originY: -H * CEL_M };
+  celTq = tq;
+
+  const states = MEN.map(m => manState(m, tq, T));
+  lastStates = states;
+  lastCmd = CMD.map(c => ({ c, p: cmdState(c, tq) }));
+  groundIntoCel();
+  shadowsIntoCel();
+  yield; resume();
+
+  const formedAmt = inv(T.roof1, T.rear + 0.4, tq);
+  const back = states.filter(s => s.m.r > 0 || s.view === 'profile').sort((a, b) => a.Z - b.Z || a.X - b.X);
+  const front = states.filter(s => s.m.r === 0 && s.view !== 'profile').sort((a, b) => a.X - b.X);
+
+  for (const s of back) {
+    drawMan(s);
+    if (s.shield && s.pass === 'body') drawShieldW(s.shield);
+    yield; resume();
+  }
+  if (formedAmt > 0) {
+    // Deep shade under the shell, crosshatched
+    const F = 1.18, B = -1.5, L = -2.55, Rr = 2.58, top = 1.76;
+    const pts = [[L, 0, F], [Rr, 0, F], [Rr, 0, B], [Rr, 1.62, B], [1.86, 1.9, B], [1.86, 1.9, F], [L, top, F]].map(p => { const q = projP(p[0], p[1], p[2]); return celXY(q[0], q[1]); });
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const path = new Path2D(); pts.forEach((q, i) => (i ? path.lineTo(q[0], q[1]) : path.moveTo(q[0], q[1]))); path.closePath();
+    g.globalAlpha = 0.74 * formedAmt; g.fillStyle = '#1B100A'; g.fill(path);
+    PX = 1; scalePatterns(); g.globalAlpha = 0.5 * formedAmt; g.fillStyle = patterns(g).lines; g.fill(path);
+    g.globalAlpha = 1;
+  }
+  states.filter(s => s.pass === 'side').sort((a, b) => a.m.side - b.m.side || a.Z - b.Z).forEach(s => drawShieldW(s.shield));
+  yield; resume();
+  for (const s of front) { drawMan(s); yield; resume(); }
+  // How many roof tiles are filled in (shown once the roof is complete)
+  const fill = tq > T.rear + 0.5 ? (shown / 100) * ROOF_ORDER.length : 0;
+  states.filter(s => s.pass === 'roof').sort((a, b) => b.m.r - a.m.r || a.X - b.X).forEach(s => {
+    const i = ROOF_ORDER.indexOf(s.m.id);
+    const newest = i === Math.ceil(fill) - 1 && fill < ROOF_ORDER.length && BOIL % 2 === 0;
+    drawShieldW(s.shield, i < fill ? (newest ? 2 : 1) : 0);
+  });
+  states.filter(s => s.pass === 'front').sort((a, b) => a.X - b.X).forEach(s => drawShieldW(s.shield));
+
+  arrowsIntoCel(tq);
+  // Command group, in front of everything else
+  for (const { c, p } of lastCmd.slice().sort((a, b) => a.c.Z - b.c.Z)) {
+    yield; resume();
+    figTransform(c.X, c.Z, 1);
+    drawFront(p);
+  }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+}
+// Drive the cel job within a per frame time budget; swap buffers when done.
+function pumpCel(tq, cam, budgetMs) {
+  if (!celJob) celJob = celWork(tq, cam);
+  const t0 = performance.now();
+  for (;;) {
+    let step;
+    try { step = celJob.next(); }
+    catch (err) {
+      // Never let one bad drawing stop the intro: drop it and carry on.
+      if (!pumpCel.warned) { console.error(err); pumpCel.warned = true; }
+      celJob = null;
+      return true;
+    }
+    if (step.done) {
+      [cel, celShow] = [celShow, cel]; [cctx, celShowCtx] = [celShowCtx, cctx];
+      showCam = celCam; showTq = celTq; celJob = null;
+      return true;
+    }
+    if (performance.now() - t0 > budgetMs) return false;
+  }
+}
+function compositeCel(cam) {
+  if (!showCam) return;
+  const S = cam.z / showCam.z;
+  const tx = (showCam.originX - showCam.ox) * S + (showCam.cx - cam.cx) * cam.z + cam.ox;
+  const ty = (showCam.originY - showCam.oy) * S + (showCam.cy - cam.cy) * cam.z + cam.oy;
+  ctx.setTransform(S, 0, 0, S, tx * DPR, ty * DPR);
+  ctx.drawImage(celShow, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+// ----- Ground, arena wall, cast shadows -----
+const WALL_Z = -5.6;
+// Sand, rake lines and the far arena wall are world locked, so they are drawn
+// into the cel too and only re-rendered on twos.
+function groundIntoCel() {
+  const c = cctx, d = DPR, z = celCam.z, cw = cel.width, ch = cel.height;
+  const ex = (celCam.ox - celCam.originX - celCam.cx * z) * d, ey = (celCam.oy - celCam.originY - celCam.cy * z) * d;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = C.sand; c.fillRect(0, 0, cw, ch);
+  const pat = c.createPattern(groundTile, 'repeat');
+  if (pat.setTransform) pat.setTransform(new DOMMatrix([z / 128 * d, 0, 0, KZ * z / 128 * d, ex, ey]));
+  c.fillStyle = pat; c.fillRect(0, 0, cw, ch);
+  const yb = ey + KZ * WALL_Z * z * d, yt = ey + (KZ * WALL_Z - 2.6) * z * d;
+  if (yb <= 0) return;
+  c.fillStyle = '#211A14'; c.fillRect(0, 0, cw, Math.max(0, yt));
+  c.save(); c.fillStyle = patterns(c).half; c.globalAlpha = 0.5; c.fillRect(0, 0, cw, Math.max(0, yt)); c.restore();
+  c.fillStyle = '#D2AB75'; c.fillRect(0, yt, cw, yb - yt);
+  c.fillStyle = 'rgba(17,17,17,.14)'; c.fillRect(0, yt + (yb - yt) * 0.6, cw, (yb - yt) * 0.4);
+  c.strokeStyle = 'rgba(17,17,17,.55)'; c.lineWidth = d;
+  c.beginPath();
+  const rows = 5, wallH = yb - yt, step = 1.1 * z * d, x0 = ex - KX * WALL_Z * z * d;
+  for (let i = 1; i < rows; i++) { const y = yt + (wallH * i) / rows; c.moveTo(0, y); c.lineTo(cw, y); }
+  for (let i = 0; i < rows; i++) {
+    const y0 = yt + (wallH * i) / rows, y1 = yt + (wallH * (i + 1)) / rows;
+    for (let x = x0 + ((i % 2) * step) / 2 - Math.ceil(x0 / step + 1) * step; x < cw; x += step) { c.moveTo(x, y0); c.lineTo(x, y1); }
+  }
+  c.stroke();
+  c.fillStyle = C.sandLight; c.fillRect(0, yt - 3 * d, cw, 5 * d);
+  c.fillStyle = INK; c.fillRect(0, yt - 4.5 * d, cw, 2 * d); c.fillRect(0, yb - 1.5 * d, cw, 3 * d);
+}
+// Warm sunlight from the upper left, falling off to the corners (screen space).
+function drawLight(panel) {
+  const d = DPR;
+  const gr = ctx.createRadialGradient(panel.x * d + panel.w * d * 0.25, panel.y * d + panel.h * d * 0.2, 0, panel.x * d + panel.w * d * 0.4, panel.y * d + panel.h * d * 0.45, Math.max(panel.w, panel.h) * d * 0.85);
+  gr.addColorStop(0, 'rgba(255,236,196,0.16)'); gr.addColorStop(0.5, 'rgba(255,236,196,0)'); gr.addColorStop(0.78, 'rgba(30,16,8,0.12)'); gr.addColorStop(1, 'rgba(20,14,10,0.6)');
+  ctx.fillStyle = gr; ctx.fillRect(panel.x * d, panel.y * d, panel.w * d, panel.h * d);
+}
+
+// Cast shadows are drawn once per cel (on twos) into their own buffer so
+// overlapping shapes do not darken each other, then laid onto the cel.
+function shadowsIntoCel() {
+  if (shadowCv.width !== cel.width || shadowCv.height !== cel.height) { shadowCv.width = cel.width; shadowCv.height = cel.height; }
+  sctx.setTransform(1, 0, 0, 1, 0, 0);
+  sctx.clearRect(0, 0, shadowCv.width, shadowCv.height);
+  sctx.fillStyle = '#000';
+  const gp = (X, Y, Z) => { const q = projP(X + SHADOW_DIR[0] * Y, 0, Z + SHADOW_DIR[2] * Y); return celXY(q[0], q[1]); };
+  const poly = pts => { sctx.beginPath(); pts.forEach((q, i) => (i ? sctx.lineTo(q[0], q[1]) : sctx.moveTo(q[0], q[1]))); sctx.closePath(); sctx.fill(); };
+  const body = (X, Z, h = 1.78, w = 0.17) => poly([gp(X - w, 0, Z), gp(X - w * 1.4, h * 0.78, Z), gp(X - w * 0.7, h, Z), gp(X + w * 0.7, h, Z), gp(X + w * 1.4, h * 0.78, Z), gp(X + w, 0, Z)]);
+  for (const s of lastStates) {
+    body(s.X, s.Z, 1.78 - s.bob / 100);
+    if (s.shield) {
+      const { C: c, U, V } = s.shield;
+      const cs = [vadd(vsub(c, vmul(U, 0.5)), vmul(V, 0.5)), vadd(vadd(c, vmul(U, 0.5)), vmul(V, 0.5)), vsub(vadd(c, vmul(U, 0.5)), vmul(V, 0.5)), vsub(vsub(c, vmul(U, 0.5)), vmul(V, 0.5))];
+      poly(cs.map(p => gp(p[0], p[1], p[2])));
+    }
+  }
+  for (const { c } of lastCmd) {
+    body(c.X, c.Z, c.kind === 'cent' ? 1.95 : 1.85);
+    if (c.kind === 'vex') {
+      const px = c.X - 0.236;
+      poly([gp(px - 0.02, 0, c.Z), gp(px - 0.02, 2.8, c.Z), gp(px + 0.02, 2.8, c.Z), gp(px + 0.02, 0, c.Z)]);
+      poly([gp(px - 0.36, 2.45, c.Z), gp(px + 0.36, 2.45, c.Z), gp(px + 0.38, 1.66, c.Z), gp(px - 0.34, 1.66, c.Z)]);
+    }
+    if (c.kind === 'corn') { const q = gp(c.X + 0.05, 1.26, c.Z); sctx.beginPath(); sctx.ellipse(q[0], q[1], 0.5 * celCam.z * DPR, 0.12 * celCam.z * DPR, 0.1, 0, 7); sctx.fill(); }
+  }
+  cctx.setTransform(1, 0, 0, 1, 0, 0);
+  cctx.globalAlpha = 0.42;
+  cctx.drawImage(shadowCv, 0, 0);
+  cctx.globalAlpha = 1;
+}
+
+// ----- Arrows -----
+const arrowPos = (a, s) => [lerp(a.S[0], a.E[0], s), lerp(a.S[1], a.E[1], s) + a.h * 4 * s * (1 - s), lerp(a.S[2], a.E[2], s)];
+const arrowDir = (a, s) => vnorm([a.E[0] - a.S[0], a.E[1] - a.S[1] + a.h * 4 * (1 - 2 * s), a.E[2] - a.S[2]]);
+function rotate(v, k, th) {
+  const c = Math.cos(th), s = Math.sin(th), kv = vcross(k, v), d = vdot(k, v) * (1 - c);
+  return [v[0] * c + kv[0] * s + k[0] * d, v[1] * c + kv[1] * s + k[1] * d, v[2] * c + kv[2] * s + k[2] * d];
+}
+// Draws one arrow (or broken piece) between two device pixel points on context c.
+function arrowPx(c, hx, hy, tx, ty, w, o) {
+  const d = DPR;
+  const ang = Math.atan2(hy - ty, hx - tx), ca = Math.cos(ang), sa = Math.sin(ang);
+  c.lineCap = 'round';
+  c.strokeStyle = INK; c.lineWidth = w + 2 * d;
+  c.beginPath(); c.moveTo(hx, hy); c.lineTo(tx, ty); c.stroke();
+  c.strokeStyle = '#C99E66'; c.lineWidth = w;
+  c.beginPath(); c.moveTo(hx, hy); c.lineTo(tx, ty); c.stroke();
+  if (o.head) {
+    const L = w * 3.6, Wd = w * 1.6;
+    c.beginPath();
+    c.moveTo(hx + ca * L * 0.9, hy + sa * L * 0.9);
+    c.lineTo(hx - sa * Wd, hy + ca * Wd);
+    c.lineTo(hx + sa * Wd, hy - ca * Wd);
+    c.closePath();
+    c.fillStyle = C.iron; c.fill(); c.lineWidth = 1.1 * d; c.strokeStyle = INK; c.stroke();
+  }
+  if (o.fletch) {
+    const fl = Math.min(Math.hypot(hx - tx, hy - ty) * 0.24, w * 7), fw = w * 2;
+    for (const sgn of [-1, 1]) {
+      c.beginPath();
+      c.moveTo(tx + ca * w * 0.6, ty + sa * w * 0.6);
+      c.lineTo(tx + ca * fl, ty + sa * fl);
+      c.lineTo(tx + ca * fl * 0.55 - sa * fw * sgn, ty + sa * fl * 0.55 + ca * fw * sgn);
+      c.lineTo(tx - sa * fw * sgn, ty + ca * fw * sgn);
+      c.closePath();
+      c.fillStyle = sgn > 0 ? C.redShadow : C.sandLight; c.fill();
+      c.lineWidth = 0.9 * d; c.strokeStyle = INK; c.stroke();
+    }
+  }
+}
+// World space segments for an arrow after impact: stuck (with a twang),
+// glancing off and tumbling to the sand, or splintered in two.
+function arrowSegments(a, t, dz) {
+  const u = t - a.ti, out = [];
+  const E0 = a.attach ? vadd(a.E, [0, 0, dz]) : a.E;
+  if (a.kind === 'stick' || a.kind === 'ground') {
+    const wob = 0.05 * Math.exp(-8 * u) * Math.sin(52 * u);
+    out.push([vadd(E0, vmul(a.dirIn, 0.01)), vadd(vsub(E0, vmul(a.dirIn, 0.7)), vmul(a.perp, wob)), { fletch: true }]);
+    return out;
+  }
+  for (const pc of a.pieces) {
+    const tau = Math.min(u, pc.tl);
+    let pos = vadd(a.E, vadd(vmul(pc.v0, tau), [0, -4.9 * tau * tau, 0]));
+    let o = rotate(a.dirIn, pc.axis, pc.spin * tau);
+    if (u >= pc.tl) { o = vnorm([o[0], 0, o[2]]); pos = [pos[0], 0.012, pos[2]]; }
+    if (pc.full) out.push([vadd(pos, vmul(o, 0.36)), vsub(pos, vmul(o, 0.36)), { head: true, fletch: true }]);
+    else if (pc.head) out.push([vadd(pos, vmul(o, pc.len)), pos, { head: true }]);
+    else out.push([pos, vsub(pos, vmul(o, pc.len)), { fletch: true }]);
+  }
+  return out;
+}
+function arrowSettled(a, t) {
+  const u = t - a.ti;
+  if (u < 0) return false;
+  if (a.kind === 'stick' || a.kind === 'ground') return u > 0.45;
+  return u > 0.55 && a.pieces.every(pc => u > pc.tl + 0.02);
+}
+const arrowWidth = z => clamp(z * 0.009, 1, 2.4) * DPR;
+function arrowsIntoCel(tq) {
+  const dz = stompAt(tq).dz, w = arrowWidth(celCam.z);
+  const px = p => { const q = projP(p[0], p[1], p[2]); return celXY(q[0], q[1]); };
+  cctx.setTransform(1, 0, 0, 1, 0, 0);
+  for (const a of ARROWS) {
+    if (!arrowSettled(a, tq)) continue;
+    for (const [h, tl, o] of arrowSegments(a, tq, dz)) { const H = px(h), Tt = px(tl); arrowPx(cctx, H[0], H[1], Tt[0], Tt[1], w, o); }
+  }
+}
+function drawArrows(t, cam) {
+  const d = DPR, dz = stompAt(t).dz, w = arrowWidth(cam.z);
+  const px = p => { const q = toScreen(cam, p); return [q[0] * d, q[1] * d]; };
+  for (const a of ARROWS) {
+    if (t < a.t0 || arrowSettled(a, showTq)) continue;
+    if (t < a.ti) {
+      const s = (t - a.t0) / a.dur, p = arrowPos(a, s), dir = arrowDir(a, s);
+      const tail = vsub(p, vmul(dir, 0.72));
+      // Shadow streaking across the sand
+      const g1 = px([p[0] + SHADOW_DIR[0] * p[1], 0, p[2] + SHADOW_DIR[2] * p[1]]), g2 = px([tail[0] + SHADOW_DIR[0] * tail[1], 0, tail[2] + SHADOW_DIR[2] * tail[1]]);
+      ctx.strokeStyle = 'rgba(30,18,10,.32)'; ctx.lineWidth = 2 * d;
+      ctx.beginPath(); ctx.moveTo(g1[0], g1[1]); ctx.lineTo(g2[0], g2[1]); ctx.stroke();
+      const H = px(p), Tt = px(tail);
+      arrowPx(ctx, H[0], H[1], Tt[0], Tt[1], w, { head: true, fletch: true });
+      continue;
+    }
+    const u = t - a.ti;
+    for (const [h, tl, o] of arrowSegments(a, t, dz)) { const H = px(h), Tt = px(tl); arrowPx(ctx, H[0], H[1], Tt[0], Tt[1], w, o); }
+    const E0 = a.attach ? vadd(a.E, [0, 0, dz]) : a.E;
+    if (a.chips && u < 0.5) {
+      ctx.save(); ctx.globalAlpha = 1 - u / 0.5;
+      for (const ch of a.chips) {
+        const q = toScreen(cam, vadd(E0, vadd(vmul(ch.v, u), [0, -4.9 * u * u, 0]))), r = ch.len * cam.z, an = ch.rot + u * 14;
+        ctx.strokeStyle = INK; ctx.lineWidth = 3 * d;
+        ctx.beginPath(); ctx.moveTo((q[0] - Math.cos(an) * r) * d, (q[1] - Math.sin(an) * r) * d); ctx.lineTo((q[0] + Math.cos(an) * r) * d, (q[1] + Math.sin(an) * r) * d); ctx.stroke();
+        ctx.strokeStyle = C.sandLight; ctx.lineWidth = 1.4 * d; ctx.stroke();
+      }
+      ctx.restore();
+    }
+    if (u < 0.16 && a.kind !== 'ground') {
+      // Impact: white comic star and ink burst lines
+      const q = toScreen(cam, E0), k = 1 - u / 0.16, r = clamp(cam.z * 0.09, 9, 20) * (0.6 + 0.6 * k);
+      ctx.save(); ctx.strokeStyle = INK; ctx.lineWidth = 2 * d; ctx.globalAlpha = k;
+      ctx.beginPath();
+      for (let i = 0; i < 7; i++) { const an = i * 0.9 + a.t0 * 10; ctx.moveTo((q[0] + Math.cos(an) * r * 0.8) * d, (q[1] + Math.sin(an) * r * 0.8) * d); ctx.lineTo((q[0] + Math.cos(an) * r * 1.5) * d, (q[1] + Math.sin(an) * r * 1.5) * d); }
+      ctx.stroke(); ctx.restore();
+      glintStar(ctx, q[0] * d, q[1] * d, r * 0.75 * d, a.t0 * 7, k);
+    }
+  }
+}
+
+// ----- Dust, motes, glints -----
+function drawDust(t, cam) {
+  const d = DPR, LIFE = 0.95;
+  let lo = 0, hi = DUST.length;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (DUST[mid].t < t - LIFE) lo = mid + 1; else hi = mid; }
+  ctx.lineWidth = 1.2 * d;
+  for (let i = lo; i < DUST.length && DUST[i].t <= t; i++) {
+    const ev = DUST[i], a = (t - ev.t) / LIFE;
+    const [x, y] = toScreen(cam, [ev.X, 0, ev.Z]);
+    const R = ev.size * cam.z * (0.08 + 0.2 * E.out(a)), al = Math.pow(1 - a, 1.4);
+    const lumps = [[-0.6, -0.1 - a * 0.3, 0.6], [0.55, -0.22 - a * 0.5, 0.5], [0, -0.5 - a * 0.75, 0.55]];
+    for (const [ox, oy, rr] of lumps) {
+      ctx.beginPath(); ctx.arc((x + ox * R) * d, (y + oy * R) * d, rr * R * d, 0, 7);
+      ctx.fillStyle = `rgba(246,227,192,${(al * 0.85).toFixed(3)})`; ctx.fill();
+      ctx.strokeStyle = `rgba(17,17,17,${(al * 0.55).toFixed(3)})`; ctx.stroke();
+    }
+  }
+}
+function drawMotes(t, panel) {
+  const d = DPR;
+  ctx.fillStyle = 'rgba(255,238,205,.5)';
+  for (let i = 0; i < 34; i++) {
+    const x = panel.x + frac(hash(i, 1, 5) + t * (0.004 + hash(i, 2, 5) * 0.01)) * panel.w;
+    const y = panel.y + frac(hash(i, 3, 5) - t * 0.006 + Math.sin(t * 0.4 + i) * 0.01) * panel.h;
+    const r = (0.8 + hash(i, 4, 5) * 1.6) * d;
+    ctx.globalAlpha = 0.25 + 0.35 * hash(i, 6, 5);
+    ctx.beginPath(); ctx.arc(x * d, y * d, r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawGlints(t, cam) {
+  const d = DPR, dz = stompAt(t).dz;
+  const pts = BOSSES.map(b => toScreen(cam, vadd(b, [0, 0, dz])));
+  if (!pts.length) return;
+  const rMax = clamp(cam.z * 0.1, 9, 22);
+  if (t >= T.glint && t < T.glint + 1.05) {
+    let x0 = Infinity, x1 = -Infinity;
+    pts.forEach(p => { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); });
+    const sx = lerp(x0 - 60, x1 + 60, (t - T.glint) / 1.05);
+    pts.forEach((p, i) => { const k = Math.exp(-Math.pow((p[0] - sx) / 38, 2)); if (k > 0.05) glintStar(ctx, p[0] * d, p[1] * d, rMax * k * d, t * 2 + i, k); });
+  }
+  if (t > T.end - 0.2) {
+    const idx = Math.floor(t / 1.35), u = frac(t / 1.35) * 1.35;
+    if (u < 0.36) {
+      const helm = hash(idx, 1, 9) < 0.35 && HELMETS.length;
+      const p = helm ? toScreen(cam, vadd(HELMETS[Math.floor(hash(idx, 2, 9) * HELMETS.length)], [0, 0, dz])) : pts[Math.floor(hash(idx, 3, 9) * pts.length)];
+      const k = Math.sin(Math.PI * u / 0.36);
+      glintStar(ctx, p[0] * d, p[1] * d, rMax * 0.85 * k * d, idx, k);
+    }
+  }
+}
+
+// ----- Lettering -----
+function sfxText(text, x, y, size, rot, fill, alpha, extrude = 4) {
+  const d = DPR;
+  ctx.save();
+  ctx.translate(x * d, y * d); ctx.rotate(rot); ctx.globalAlpha = alpha;
+  ctx.font = `${Math.round(size * d)}px Bangers, Impact, "Arial Black", sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  ctx.fillStyle = INK;
+  for (let i = extrude; i > 0; i--) ctx.fillText(text, i * size * 0.02 * d, i * size * 0.024 * d);
+  ctx.lineWidth = size * 0.16 * d; ctx.strokeStyle = INK; ctx.strokeText(text, 0, 0);
+  ctx.fillStyle = fill; ctx.fillText(text, 0, 0);
+  ctx.save(); ctx.beginPath(); ctx.rect(-size * 4 * d, size * 0.12 * d, size * 8 * d, size * d); ctx.clip();
+  ctx.fillStyle = fill === C.gold ? C.goldShadow : C.sandShadow; ctx.fillText(text, 0, 0);
+  ctx.restore();
+  ctx.restore();
+}
+function drawSFX(t, cam) {
+  for (const s of SFX) {
+    const life = s.life || 0.8, u = t - s.t;
+    if (u < 0 || u > life) continue;
+    const uq = Math.floor(u * 12) / 12;
+    const sc = 0.45 + 0.55 * E.outBack(clamp(uq / 0.17));
+    const [x, y] = toScreen(cam, s.at);
+    const size = s.size * clamp(cam.z * 0.5, 30, 140) * sc;
+    const jit = (hash(s.t, Math.floor(u * 12), 3) - 0.5) * 0.03;
+    sfxText(s.text, x, y - u * 14, size, s.rot + jit, s.fill, 1 - inv(life - 0.22, life, u));
+  }
+}
+function captionBox(text, x, y, size, opts = {}) {
+  const d = DPR;
+  ctx.save();
+  ctx.font = `700 ${Math.round(size * d)}px Cinzel, Georgia, serif`;
+  const tw = ctx.measureText(text).width / d, pad = size * 0.8;
+  const w = tw + pad * 2, h = size * 2.1;
+  const bx = opts.align === 'right' ? x - w : x;
+  ctx.translate(bx * d, y * d); ctx.rotate(opts.rot || 0);
+  ctx.globalAlpha = opts.alpha ?? 1;
+  ctx.fillStyle = INK; ctx.fillRect(4 * d, 4 * d, w * d, h * d);
+  ctx.fillStyle = opts.bg || C.sand; ctx.fillRect(0, 0, w * d, h * d);
+  ctx.lineWidth = 2.5 * d; ctx.strokeStyle = INK; ctx.strokeRect(0, 0, w * d, h * d);
+  ctx.fillStyle = opts.color || INK; ctx.textBaseline = 'middle';
+  ctx.fillText(text, pad * d, (h / 2 + size * 0.05) * d);
+  ctx.restore();
+}
+
+// ----- Close up panels (2: centurion, 3: cornicen) -----
+function panelPoly(which) {
+  const land = W / H > 1.05;
+  if (which === 2) return land ? [[0.57, 0.06], [0.965, 0.06], [0.965, 0.55], [0.62, 0.63]] : [[0.04, 0.08], [0.96, 0.05], [0.96, 0.36], [0.04, 0.41]];
+  return land ? [[0.035, 0.42], [0.4, 0.35], [0.44, 0.8], [0.035, 0.8]] : [[0.04, 0.5], [0.96, 0.45], [0.96, 0.8], [0.04, 0.8]];
+}
+function drawCloseups(t) {
+  if (!T.panel2) return;
+  for (const which of [2, 3]) {
+    const [a, b] = which === 2 ? T.panel2 : T.panel3;
+    if (t < a || t > b + 0.14) continue;
+    drawPanel(which, t, a, b);
+  }
+}
+function drawPanel(which, t, a, b) {
+  const d = DPR, tq = Math.floor(t * 12) / 12;
+  const kin = E.out(inv(a, a + 0.2, t)), kout = E.in(inv(b, b + 0.14, t));
+  const poly = panelPoly(which).map(([x, y]) => [x * W, y * H]);
+  const dx = (1 - kin) * (which === 2 ? W * 0.75 : -W * 0.75), dy = -kout * H;
+  const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
+  const bx = Math.min(...xs), by = Math.min(...ys), bw = Math.max(...xs) - bx, bh = Math.max(...ys) - by;
+  const path = new Path2D();
+  poly.forEach(([x, y], i) => (i ? path.lineTo((x + dx) * d, (y + dy) * d) : path.moveTo((x + dx) * d, (y + dy) * d)));
+  path.closePath();
+  ctx.save();
+  ctx.translate(8 * d, 8 * d); ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fill(path); ctx.translate(-8 * d, -8 * d);
+  ctx.save();
+  ctx.clip(path);
+  const ox = bx + dx, oy = by + dy;
+  BOIL = Math.floor(tq * 12) % 3; BSEED = BOIL * 17.3 + which;
+  if (which === 2) {
+    ctx.fillStyle = C.red; ctx.fillRect(ox * d, oy * d, bw * d, bh * d);
+    const fx = ox + bw * 0.42, fy = oy + bh * 0.42, R = Math.max(bw, bh) * 1.3;
+    // Speed lines behind the shout
+    ctx.fillStyle = INK;
+    for (let i = 0; i < 46; i++) {
+      const an = (i / 46) * Math.PI * 2 + hash(i, BOIL, 4) * 0.08, wdt = 0.012 + hash(i, 7, 4) * 0.02, r0 = Math.max(bw, bh) * (0.28 + hash(i, 2, BOIL) * 0.12);
+      ctx.beginPath();
+      ctx.moveTo((fx + Math.cos(an) * r0) * d, (fy + Math.sin(an) * r0) * d);
+      ctx.lineTo((fx + Math.cos(an - wdt) * R) * d, (fy + Math.sin(an - wdt) * R) * d);
+      ctx.lineTo((fx + Math.cos(an + wdt) * R) * d, (fy + Math.sin(an + wdt) * R) * d);
+      ctx.fill();
+    }
+    ctx.save(); ctx.globalAlpha = 0.35; ctx.fillStyle = patterns(ctx).half; ctx.fillRect(ox * d, oy * d, bw * d, bh * d); ctx.restore();
+    const k = (bh * 0.55 / 50) * (1 + 0.05 * inv(a, b, t)) * d;
+    const shake = (hash(tq, 1, 2) - 0.5) * 3 * d;
+    g = ctx;
+    g.setTransform(k, 0, 0, k, (ox + bw * 0.44) * d + shake, (oy + bh * 0.46) * d + 170 * k);
+    PX = d / k; JIT = CONFIG.BOIL_PX * d / k; DET = true; scalePatterns();
+    drawFront({ kind: 'cent', feet: [[-11, 0], [11, 0]], hip: [0, 0], armR: 'vitis', armL: 'side', mouth: BOIL % 2 ? 0.8 : 1 });
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (t > a + 0.12) {
+      const fs = clamp(bh * 0.12, 20, 52), pop = E.outBack(inv(a + 0.12, a + 0.3, Math.floor(t * 12) / 12));
+      ctx.save();
+      ctx.translate((ox + bw * 0.62) * d, (oy + bh * 0.8) * d); ctx.rotate(-0.06); ctx.scale(pop, pop);
+      ctx.font = `${Math.round(fs * d)}px Bangers, Impact, sans-serif`;
+      const tw = ctx.measureText('TESTUDO!').width;
+      const w = tw + fs * 1.1 * d, h = fs * 1.5 * d;
+      ctx.fillStyle = INK; ctx.fillRect(-w / 2 + 5 * d, -h / 2 + 5 * d, w, h);
+      ctx.fillStyle = C.sand; ctx.fillRect(-w / 2, -h / 2, w, h);
+      ctx.lineWidth = 3 * d; ctx.strokeStyle = INK; ctx.strokeRect(-w / 2, -h / 2, w, h);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+      ctx.lineWidth = fs * 0.12 * d; ctx.strokeStyle = INK; ctx.strokeText('TESTUDO!', 0, fs * 0.06 * d);
+      ctx.fillStyle = C.red; ctx.fillText('TESTUDO!', 0, fs * 0.06 * d);
+      ctx.restore();
+    }
+  } else {
+    ctx.fillStyle = C.sand; ctx.fillRect(ox * d, oy * d, bw * d, bh * d);
+    ctx.save(); ctx.globalAlpha = 0.28; ctx.fillStyle = patterns(ctx).half; ctx.fillRect(ox * d, oy * d, bw * d, bh * d); ctx.restore();
+    const k = Math.min(bw * 0.85 / 80, bh * 0.85 / 64) * (1 + 0.04 * inv(a, b, t)) * d;
+    const cx = (ox + bw * 0.42) * d, cy = (oy + bh * 0.56) * d;
+    const ex = cx + (37 - 18) * k, ey = cy + (-196 + 178) * k;  // bell, in panel space
+    // Sound wave rings from the bell
+    ctx.lineWidth = 3 * d; ctx.strokeStyle = INK;
+    for (let i = 0; i < 6; i++) {
+      const r = ((t - a) * 300 + i * 55) % 330 + 18;
+      ctx.globalAlpha = Math.max(0, 1 - r / 340);
+      for (let j = 0; j < 3; j++) { ctx.beginPath(); ctx.arc(ex, ey, r * d, -1.9 + j * 0.75, -1.9 + j * 0.75 + 0.5); ctx.stroke(); }
+    }
+    ctx.globalAlpha = 1;
+    g = ctx;
+    g.setTransform(k, 0, 0, k, cx - 18 * k, cy + 178 * k);
+    PX = d / k; JIT = CONFIG.BOIL_PX * d / k; DET = true; scalePatterns();
+    drawFront({ kind: 'corn', feet: [[-11, 0], [11, 0]], hip: [0, 0], armR: 'horn', armL: 'horn', cheeks: 1 });
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (t > a + 0.1) {
+      const u = Math.floor((t - a - 0.1) * 12) / 12;
+      const fs = clamp(bh * 0.24, 30, 96) * (0.5 + 0.5 * E.outBack(clamp(u / 0.2)));
+      sfxText('THOOM', Math.min(ex / d + fs * 1.1, ox + bw - fs * 1.45), ey / d + fs * 0.25, fs, -0.12 + (hash(u, 2, 2) - 0.5) * 0.03, C.gold, 1, 5);
+    }
+  }
+  ctx.restore();
+  ctx.lineJoin = 'miter';
+  ctx.lineWidth = 10 * d; ctx.strokeStyle = C.bg; ctx.stroke(path);
+  ctx.lineWidth = 4 * d; ctx.strokeStyle = INK; ctx.stroke(path);
+  ctx.restore();
+}
+
+// ----- Frame -----
+let staticT = 0;
+function render(t) {
+  const tq = REDUCED ? t : Math.floor(t * CONFIG.DRAW_FPS) / CONFIG.DRAW_FPS;
+  const panel = panelRect(t);
+  const cam = fitCamera(cameraRect(t), panel);
+  if (celDirty) { celJob = null; while (!pumpCel(tq, cam, 1e9)); celDirty = false; }
+  else if (celJob || tq !== showTq) pumpCel(tq, cam, CEL_BUDGET);
+  const sh = REDUCED ? [0, 0] : shakeAt(t);
+  const camS = { ...cam, ox: cam.ox + sh[0], oy: cam.oy + sh[1] };
+  const d = DPR;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(panel.x * d, panel.y * d, panel.w * d, panel.h * d); ctx.clip();
+  ctx.fillStyle = C.sand; ctx.fillRect(panel.x * d, panel.y * d, panel.w * d, panel.h * d);
+  compositeCel(camS);
+  const dim = 0.24 * bump(t, T.volley - 0.3, T.volley + T.volleyDur + 1.0, 0.35, 0.6);
+  if (dim > 0) { ctx.fillStyle = `rgba(12,8,14,${dim.toFixed(3)})`; ctx.fillRect(panel.x * d, panel.y * d, panel.w * d, panel.h * d); }
+  drawArrows(t, camS);
+  drawDust(t, camS);
+  if (!REDUCED) drawMotes(t, panel);
+  drawGlints(t, camS);
+  drawLight(panel);
+  drawSFX(t, camS);
+  ctx.restore();
+  if (panel.x > 0.5) {
+    ctx.lineWidth = 4.5 * d; ctx.strokeStyle = INK;
+    ctx.strokeRect(panel.x * d, panel.y * d, panel.w * d, panel.h * d);
+  }
+  if (!T.short && t > 0.25 && t < 3.75) captionBox('Legio VI Ferrata · A.D. 112', panel.x + 18, panel.y + 18, clamp(W * 0.011, 10, 14), { alpha: inv(0.25, 0.55, t) * (1 - inv(3.5, 3.75, t)) });
+  drawCloseups(t);
+}
+
+// ----- Ink wipe into the dashboard -----
+function drawWipe(u) {
+  const d = DPR;
+  // Wet brush edge: a few layered waves, no hard teeth
+  const edge = (front, y) => front + Math.sin(y * 0.013 + 1) * 38 + Math.sin(y * 0.031 + 4) * 16 + Math.sin(y * 0.083 + 2) * 6;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (u < 0.5) {
+    const k = E.in(u / 0.5), front = k * (W * 1.5) - W * 0.25;
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.moveTo(0, 0);
+    for (let y = 0; y <= H + 10; y += 10) ctx.lineTo(edge(front, y) * d, y * d);
+    ctx.lineTo(0, H * d); ctx.closePath(); ctx.fill();
+    for (let i = 0; i < 16; i++) {
+      const y = hash(i, 1, 8) * H, x = edge(front, y) + 20 + hash(i, 2, 8) * 90, r = 4 + hash(i, 3, 8) * 16;
+      ctx.beginPath(); ctx.arc(x * d, y * d, r * d * k, 0, 7); ctx.fill();
+    }
+  } else {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const k = E.out((u - 0.5) / 0.5), front = k * (W * 1.5) - W * 0.25;
+    ctx.fillStyle = INK; ctx.beginPath(); ctx.moveTo(W * d, 0);
+    for (let y = 0; y <= H + 10; y += 10) ctx.lineTo(edge(front, y) * d, y * d);
+    ctx.lineTo(W * d, H * d); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = C.gold; ctx.lineWidth = 3 * d;
+    ctx.beginPath();
+    for (let y = 0; y <= H + 10; y += 10) { const x = edge(front, y) * d; y ? ctx.lineTo(x, y * d) : ctx.moveTo(x, 0); }
+    ctx.stroke();
+  }
+}
+
+/* =============================================================================
+   Loader UI, state machine, public API
+   ============================================================================= */
+const $ = id => document.getElementById(id);
+const introEl = $('intro'), dashEl = $('dash'), loaderEl = $('loader'), statusEl = $('status'), pctEl = $('pct');
+const sloganEl = $('slogan'), titleEl = $('title'), skipBtn = $('skipBtn'), fullBtn = $('fullBtn');
+const show = (el, on) => el.setAttribute('data-hidden', on ? 'false' : 'true');
+
+(function buildTrack() {
+  let dpath = 'M2 6';
+  for (let x = 14; x <= 298; x += 12) dpath += ` L${x} ${(6 + Math.sin(x * 0.11) * 0.9 + (hash(x, 1, 1) - 0.5) * 0.9).toFixed(2)}`;
+  ['trackBase', 'trackInk', 'trackGold'].forEach(id => $(id).setAttribute('d', dpath));
+})();
+$('grain').style.backgroundImage = `url(${makeGrain()})`;
+
+let mode = 'boot';        // boot | intro | hold | stomp | wipe | dash | static
+let st = 0, lastNow = 0, holdStart = 0, wipeStart = 0, wipeHalf = false;
+let target = 0, shown = 0, external = false, demo = false, finishQueued = false;
+let statusIdx = 0;
+
+function storageGet() { try { return window.localStorage.getItem(CONFIG.STORAGE_KEY); } catch (e) { return null; } }
+function storageSet() { try { window.localStorage.setItem(CONFIG.STORAGE_KEY, '1'); } catch (e) { /* private mode: keep the full intro */ } }
+
+function chooseTimeline(forceFull) {
+  const h = (location.hash || '').toLowerCase();
+  if (forceFull === true || h === '#full') return FULL;
+  if (h === '#short') return SHORT;
+  return storageGet() ? SHORT : FULL;
+}
+
+function setProgress(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return;
+  external = true; demo = false;
+  target = clamp(n, 0, 100);
+}
+function finish() {
+  target = 100;
+  finishQueued = true;
+  if (mode === 'intro' && !CONFIG.WAIT_FOR_INTRO) skip();
+}
+function skip() {
+  if (mode !== 'intro') return;
+  st = Math.max(st, T.end);
+  celDirty = true;
+  enterHold();
+}
+function enterHold() {
+  mode = 'hold'; holdStart = st;
+  storageSet();
+}
+function startStomp() {
+  mode = 'stomp'; stompStart = st;
+  MEN.filter(m => m.r === 0).forEach(m => DUST.push({ t: st + 0.28, X: tightX(m.f), Z: tightZ(m.r) + 0.32, size: 1.1 }));
+  MEN.filter(m => m.f === 0 || m.f === 7).forEach(m => DUST.push({ t: st + 0.28, X: tightX(m.f), Z: tightZ(m.r), size: 0.8 }));
+  DUST.sort((a, b) => a.t - b.t);
+  SFX.push({ t: st + 0.28, text: 'STOMP', at: [0, 0.45, 2.1], size: 1.15, rot: -0.05, fill: C.gold, life: 0.75 });
+  SHAKES.push({ t: st + 0.28, amp: 15, dur: 0.55 });
+}
+function startWipe() { mode = 'wipe'; wipeStart = performance.now(); wipeHalf = false; }
+function endIntro() {
+  mode = 'dash';
+  introEl.style.display = 'none';
+  window.dispatchEvent(new CustomEvent('aim:intro-finished'));
+  if (typeof api.onFinish === 'function') { try { api.onFinish(); } catch (e) { console.error(e); } }
+}
+
+function replay(full = true) {
+  T = full ? FULL : SHORT;
+  stompStart = null; st = 0; finishQueued = false; target = 0; shown = 0;
+  external = false; demo = true;
+  buildTimeline();
+  celDirty = true;
+  dashEl.hidden = true;
+  introEl.style.display = ''; introEl.classList.remove('is-out');
+  if (REDUCED) { enterStatic(); return; }
+  mode = 'intro';
+}
+
+function updateHUD(t, dt) {
+  shown = Math.abs(target - shown) < 0.3 ? target : shown + (target - shown) * Math.min(1, dt * 5);
+  const pct = Math.round(shown);
+  pctEl.textContent = pct + '%';
+  loaderEl.setAttribute('aria-valuenow', String(pct));
+  const off = String(100 - pct);
+  $('trackInk').setAttribute('stroke-dashoffset', off);
+  $('trackGold').setAttribute('stroke-dashoffset', off);
+  let idx = 0;
+  CONFIG.STATUS.forEach(([th], i) => { if (pct >= th) idx = i; });
+  if (idx !== statusIdx) {
+    statusIdx = idx;
+    statusEl.classList.add('is-swapping');
+    setTimeout(() => { statusEl.textContent = CONFIG.STATUS[statusIdx][1]; statusEl.classList.remove('is-swapping'); }, 230);
+  }
+  const heroUp = mode === 'static' || ((mode === 'hold' || mode === 'stomp') && t > T.word + 0.3) || (mode === 'intro' && t > T.word + 0.3);
+  show(titleEl, heroUp && mode !== 'wipe');
+  show(sloganEl, heroUp && mode !== 'wipe');
+  show(skipBtn, mode === 'intro' && t > 0.3);
+  show(fullBtn, (mode === 'hold' || mode === 'static') && T.short && !REDUCED);
+  show(loaderEl, mode !== 'wipe' && mode !== 'dash');
+  if (heroUp) {
+    // Caption box sits beneath the vexillum
+    const cam = fitCamera(cameraRect(t), panelRect(t));
+    const c = CMD[1], p = toScreen(cam, [c.X - 0.3, 0, c.Z + 0.55]);
+    const w = sloganEl.offsetWidth, h = sloganEl.offsetHeight;
+    const maxY = H - loaderEl.offsetHeight - h - 34;
+    sloganEl.style.left = clamp(p[0] - w / 2, 12, W - w - 12) + 'px';
+    sloganEl.style.top = clamp(p[1], 64, maxY) + 'px';
+  }
+}
+
+function frame(now) {
+  const dt = clamp((now - lastNow) / 1000 || 0, 0, 0.05);   // rAF time can trail performance.now()
+  lastNow = now;
+  if (mode === 'intro' || mode === 'hold' || mode === 'stomp') st += dt;
+  if (mode === 'static') st += dt;
+
+  if (demo && !external && !finishQueued) {
+    const goal = clamp(st / (T.end + CONFIG.DEMO_EXTRA)) * 100;
+    if (goal > target + 2 + hash(Math.floor(st * 3), 1, 1) * 6 || goal >= 100) target = Math.round(Math.min(100, goal));
+    if (target >= 100) finish();
+  }
+  if (mode === 'intro' && st >= T.end) enterHold();
+  if (mode === 'hold' && finishQueued && shown >= 99.5 && st - holdStart >= CONFIG.MIN_HOLD) startStomp();
+  if (mode === 'stomp' && st >= stompStart + 0.78) startWipe();
+  if (mode === 'static' && finishQueued && shown >= 99.5 && !wipeHalf) {
+    wipeHalf = true;
+    dashEl.hidden = false;
+    introEl.classList.add('is-out');
+    setTimeout(endIntro, 850);
+  }
+
+  if (mode === 'intro' || mode === 'hold' || mode === 'stomp') render(st);
+  if (mode === 'wipe') {
+    const u = clamp((now - wipeStart) / 900);
+    if (u < 0.5) { render(st); drawWipe(u); }
+    else {
+      if (!wipeHalf) { wipeHalf = true; dashEl.hidden = false; }
+      drawWipe(u);
+    }
+    if (u >= 1) endIntro();
+  }
+  updateHUD(mode === 'static' ? staticT : st, dt);
+  requestAnimationFrame(frame);
+}
+
+function enterStatic() {
+  mode = 'static';
+  staticT = T.end + 1.6;
+  introEl.classList.add('is-static');
+  celDirty = true;
+  render(staticT);
+  requestAnimationFrame(() => introEl.classList.add('is-in'));
+}
+
+skipBtn.addEventListener('click', skip);
+fullBtn.addEventListener('click', () => replay(true));
+$('replayBtn').addEventListener('click', () => replay(true));
+window.addEventListener('resize', resize);
+window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', e => { REDUCED = e.matches; celDirty = true; });
+
+const api = {
+  setProgress, finish, skip, replay,
+  // Jump the intro clock (seconds). Handy for reviewing a single frame.
+  seek(t) { if (mode === 'intro' || mode === 'hold') { st = Math.max(0, t); celDirty = true; if (st < T.end) mode = 'intro'; } },
+  get progress() { return Math.round(target); },
+  get mode() { return mode; },
+  onFinish: null,
+  config: CONFIG,
+};
+window.AIMIntro = api;
+window.setProgress = setProgress;
+window.finish = finish;
+
+async function boot() {
+  buildShieldSprites();
+  T = chooseTimeline();
+  buildTimeline();
+  resize();
+  try {
+    await Promise.race([
+      Promise.all(['40px Bangers', '900 30px Cinzel', '700 14px Cinzel'].map(f => document.fonts.load(f))),
+      new Promise(r => setTimeout(r, 2000)),
+    ]);
+  } catch (e) { /* fall back to system faces */ }
+  bannerKey = '';
+  setTimeout(() => { if (!external) demo = true; }, CONFIG.DEMO_AFTER_MS);
+  lastNow = performance.now();
+  if (REDUCED) enterStatic();
+  else mode = 'intro';
+  requestAnimationFrame(frame);
+}
+boot();
+})();
+</script>
+</body>
+</html>
