@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Testudo Loader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap">
+<style>
+  /* Colors are mirrored from CONFIG.COLORS at startup, so CONFIG stays the single source of truth. */
+  :root {
+    --red: #8B1A1A;
+    --gold: #C9A24B;
+    --bronze: #A86B32;
+    --parchment: #F2E6C9;
+    --ink: #3B2414;
+    --ink-soft: #6E4B2A;
+    --display: "Cinzel", Georgia, "Times New Roman", serif;
+    --body: Georgia, "Times New Roman", serif;
+    color-scheme: light;
+  }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    min-height: 100%;
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    /* Leave room for the meander border (10px inset + 20px band) plus a gutter. */
+    padding: 44px 40px;
+    background-color: var(--parchment);
+    /* The fiber texture tile is prepended to this list by script. */
+    background-image:
+      radial-gradient(ellipse at 22% 18%, rgba(201, 162, 75, 0.16), transparent 55%),
+      radial-gradient(ellipse at 80% 85%, rgba(139, 26, 26, 0.07), transparent 50%);
+    color: var(--ink);
+    font-family: var(--body);
+  }
+
+  /* Darkened, burnt edges of the parchment. */
+  .vignette {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 52%, rgba(96, 58, 22, 0.34) 100%);
+    z-index: 1;
+  }
+
+  /* Thin Greek key (meander) border; the SVG tiles are generated from CONFIG by script. */
+  .meander {
+    position: fixed;
+    pointer-events: none;
+    z-index: 2;
+    opacity: 0.85;
+  }
+  .meander.top, .meander.bottom { left: 10px; right: 10px; height: 20px; background-repeat: repeat-x; }
+  .meander.top { top: 10px; }
+  .meander.bottom { bottom: 10px; transform: scaleY(-1); }
+  .meander.left, .meander.right { top: 30px; bottom: 30px; width: 20px; background-repeat: repeat-y; }
+  .meander.left { left: 10px; }
+  .meander.right { right: 10px; transform: scaleX(-1); }
+
+  .loader {
+    position: relative;
+    z-index: 3;
+    width: min(720px, 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    text-align: center;
+  }
+
+  .title {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(22px, 4.2vw, 34px);
+    letter-spacing: 0.32em;
+    padding-left: 0.32em; /* balance the trailing letter-spacing */
+    color: var(--red);
+  }
+
+  .rule {
+    width: 120px;
+    height: 7px;
+    background:
+      linear-gradient(var(--gold), var(--gold)) center / 100% 1px no-repeat,
+      radial-gradient(circle, var(--gold) 2.5px, transparent 3px) center / 7px 7px no-repeat;
+  }
+
+  .field-wrap { width: 100%; }
+  #field { display: block; width: 100%; height: auto; }
+
+  .readout { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+
+  .numeral {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(40px, 8vw, 62px);
+    line-height: 1.05;
+    color: var(--red);
+    min-height: 1.05em;
+    letter-spacing: 0.04em;
+  }
+
+  .numeral-label {
+    font-family: var(--display);
+    font-size: 11px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .caption {
+    margin: 0;
+    min-height: 3.2em;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: opacity 0.24s ease, transform 0.24s ease;
+  }
+  .caption.is-out { opacity: 0; transform: translateY(4px); }
+  .caption .la {
+    font-family: var(--display);
+    font-size: clamp(16px, 2.6vw, 19px);
+    letter-spacing: 0.06em;
+    color: var(--ink);
+  }
+  .caption .en {
+    font-style: italic;
+    font-size: 15px;
+    color: var(--ink-soft);
+  }
+
+  /* Plain progress bar, shown only when the user prefers reduced motion. */
+  .bar {
+    width: min(320px, 80%);
+    height: 6px;
+    border: 1px solid var(--gold);
+    border-radius: 3px;
+    overflow: hidden;
+    background: rgba(201, 162, 75, 0.15);
+  }
+  .bar > span { display: block; height: 100%; width: 0%; background: var(--red); }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  @media (max-width: 520px) {
+    body { padding: 40px 36px; }
+    .rule { width: 80px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .caption { transition: none; }
+  }
+</style>
+</head>
+<body>
+  <div class="vignette" aria-hidden="true"></div>
+  <div class="meander top" aria-hidden="true"></div>
+  <div class="meander bottom" aria-hidden="true"></div>
+  <div class="meander left" aria-hidden="true"></div>
+  <div class="meander right" aria-hidden="true"></div>
+
+  <main class="loader" id="loader" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <h1 class="title">Testudo</h1>
+    <div class="rule" aria-hidden="true"></div>
+
+    <div class="field-wrap" id="fieldWrap">
+      <canvas id="field" aria-hidden="true"></canvas>
+    </div>
+
+    <div class="readout">
+      <div class="numeral" id="numeral" aria-hidden="true">N</div>
+      <div class="numeral-label" id="numeralLabel" aria-hidden="true">per centum · 0</div>
+    </div>
+
+    <div class="bar" id="bar" hidden><span id="barFill"></span></div>
+
+    <p class="caption" id="caption" aria-live="polite">
+      <span class="la" id="captionLa">Ordines formantur…</span>
+      <span class="en" id="captionEn">Forming the ranks…</span>
+    </p>
+  </main>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ==========================================================================
+     CONFIG: tweak the formation, palette and pacing here.
+     ========================================================================== */
+  const CONFIG = {
+    ROWS: 5,                    // ranks across (top to bottom in the view)
+    COLS: 8,                    // files deep (front of the formation faces right)
+
+    COLORS: {
+      red: '#8B1A1A',           // deep Roman red
+      redDark: '#5C0F0F',
+      redLight: '#A8302A',
+      gold: '#C9A24B',          // aged gold
+      goldLight: '#E8CF8A',
+      bronze: '#A86B32',
+      bronzeDark: '#6A4120',
+      parchment: '#F2E6C9',     // cream parchment
+      ink: '#3B2414',
+      inkSoft: '#6E4B2A',
+    },
+
+    SPEED: 1,                   // global time multiplier (2 = twice as fast)
+
+    // Progress smoothing: the drawn formation glides toward the real progress,
+    // so a jump from 10% to 90% still plays out as a staggered march.
+    MAX_RATE: 0.38,             // max displayed progress per second (0..1 scale)
+    MIN_RATE: 0.06,             // min glide speed so the last percent never crawls
+    SMOOTHING: 4,               // exponential approach strength
+
+    // How the 0..1 progress maps onto the stages.
+    MARCH_END: 0.6,             // every legionary is standing in the grid by 60%
+    MARCH_SPAN: 0.4,            // share of the march window each soldier spends walking
+    LOCK_START: 0.55,           // shields begin locking rank by rank at 55%
+    LOCK_END: 0.97,             // last rank locked by 97%
+    LOCK_SPAN: 0.3,             // share of the lock window each shield spends rising
+
+    // Finale (after 100%).
+    HOLD: 1.1,                  // seconds the finished testudo holds still
+    ADVANCE: 4.2,               // seconds of slow forward march
+    ADVANCE_DIST: 0.3,          // distance marched, as a fraction of field width
+    FADE: 0.9,                  // seconds of fade at the end of the march
+    REDUCED_PAUSE: 2.4,         // reduced motion demo: pause at 100% before looping
+
+    APPEAR_STAGGER: 0.028,      // seconds between each legionary appearing
+    STEP_RATE: 11,              // marching step frequency (radians per second)
+
+    // Layout, as fractions of the canvas.
+    ASPECT: 0.6,                // canvas height / width on wide screens
+    ASPECT_NARROW: 0.82,        // canvas height / width under 520px
+    FORMATION_X: 0.58,          // horizontal center of the finished formation
+    FORMATION_WIDTH: 0.56,      // max share of width the formation may use
+    FORMATION_HEIGHT: 0.62,     // max share of height the formation may use
+    COLUMN_X0: 0.04,            // left edge of the starting column
+    COLUMN_SPAN: 0.24,          // length of the starting column
+    COLUMN_HEIGHT: 0.56,        // spread of the starting column's files
+
+    DEMO_DELAY: 400,            // ms to wait for setProgress() before demo mode starts
+    DPR_MAX: 2,                 // cap device pixel ratio for mobile performance
+  };
+
+  // Shield poses, in cell units, in the soldier's own frame (soldier faces +x).
+  // len runs along the shield's long axis, wid across it; rot turns the shield.
+  const POSE = {
+    carry:      { ox: 0.02, oy: -0.36, len: 0.72, wid: 0.16, rot: 0 },           // on the left arm, edge on
+    wall:       { ox: 0.40, oy: 0,     len: 1.10, wid: 0.34, rot: Math.PI / 2 }, // outer ring: wall facing out
+    wallCorner: { ox: 0.40, oy: 0,     len: 1.22, wid: 0.34, rot: Math.PI / 2 },
+    roof:       { ox: 0,    oy: 0,     len: 1.32, wid: 1.12, rot: 0 },           // inner ranks: overhead plate
+  };
+
+  // Captions per stage: [Latin, English].
+  const CAPTIONS = [
+    ['Ordines formantur…', 'Forming the ranks…'],
+    ['Ad signa!', 'Rally to the standards…'],
+    ['Scuta sursum!', 'Shields up…'],
+    ['Scuta iungite!', 'Locking the shields…'],
+    ['Testudo parata.', 'Testudo ready.'],
+    ['Procedite!', 'Forward, march.'],
+  ];
+
+  /* ==========================================================================
+     Helpers
+     ========================================================================== */
+  const clamp01 = v => (v < 0 ? 0 : v > 1 ? 1 : v);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const easeInOutCubic = t => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+  const smoothstep = (a, b, v) => { const t = clamp01((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+
+  function lerpAngle(a, b, t) {
+    const TAU = Math.PI * 2;
+    const d = ((((b - a + Math.PI) % TAU) + TAU) % TAU) - Math.PI;
+    return a + d * t;
+  }
+
+  // Small seeded PRNG so each loop gets a fresh but reproducible scatter.
+  function mulberry32(seed) {
+    return function () {
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // 0 has no Roman numeral; medieval computists used N for "nulla".
+  function toRoman(n) {
+    if (n <= 0) return 'N';
+    const table = [[100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+    let out = '';
+    for (const [value, glyph] of table) while (n >= value) { out += glyph; n -= value; }
+    return out;
+  }
+
+  function makeCanvas(w, h) {
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(w));
+    c.height = Math.max(1, Math.ceil(h));
+    return c;
+  }
+
+  // arcTo based rounded rect (works where ctx.roundRect is missing).
+  function roundRectPath(g, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r);
+    g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r);
+    g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+
+  /* ==========================================================================
+     Page dressing: CSS colors, parchment texture, meander border
+     ========================================================================== */
+  const C = CONFIG.COLORS;
+  const rootStyle = document.documentElement.style;
+  rootStyle.setProperty('--red', C.red);
+  rootStyle.setProperty('--gold', C.gold);
+  rootStyle.setProperty('--bronze', C.bronze);
+  rootStyle.setProperty('--parchment', C.parchment);
+  rootStyle.setProperty('--ink', C.ink);
+  rootStyle.setProperty('--ink-soft', C.inkSoft);
+
+  function parchmentTexture() {
+    const size = 256;
+    const c = makeCanvas(size, size);
+    const g = c.getContext('2d');
+    const rnd = mulberry32(7);
+    for (let i = 0; i < 5200; i++) {               // speckles
+      g.fillStyle = `rgba(110, 72, 30, ${(rnd() * 0.07).toFixed(3)})`;
+      g.fillRect(rnd() * size, rnd() * size, 1 + rnd() * 1.2, 1 + rnd() * 1.2);
+    }
+    g.lineWidth = 0.6;
+    for (let i = 0; i < 70; i++) {                  // paper fibers
+      const x = rnd() * size, y = rnd() * size, len = 8 + rnd() * 30, a = rnd() * Math.PI;
+      g.strokeStyle = `rgba(120, 80, 35, ${(0.03 + rnd() * 0.05).toFixed(3)})`;
+      g.beginPath();
+      g.moveTo(x, y);
+      g.quadraticCurveTo(x + Math.cos(a) * len / 2 + rnd() * 4, y + Math.sin(a) * len / 2 + rnd() * 4,
+                         x + Math.cos(a) * len, y + Math.sin(a) * len);
+      g.stroke();
+    }
+    return c.toDataURL('image/png');
+  }
+
+  function meanderTile(vertical) {
+    // One 20x20 Greek key unit: border lines top and bottom, a spiral rising from the baseline.
+    const key = `<path d="M0 2H20M0 18H20M3 18V6H15V14H8V10H11" fill="none" stroke="${C.gold}" stroke-width="1.6" stroke-linecap="square"/>`;
+    const body = vertical ? `<g transform="rotate(90 10 10)">${key}</g>` : key;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">${body}</svg>`;
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  }
+
+  try {
+    document.body.style.backgroundImage = `url(${parchmentTexture()}), ` + getComputedStyle(document.body).backgroundImage;
+  } catch (e) { /* texture is decorative; plain parchment is fine */ }
+  document.querySelectorAll('.meander.top, .meander.bottom').forEach(el => { el.style.backgroundImage = meanderTile(false); });
+  document.querySelectorAll('.meander.left, .meander.right').forEach(el => { el.style.backgroundImage = meanderTile(true); });
+
+  /* ==========================================================================
+     State
+     ========================================================================== */
+  const { ROWS, COLS } = CONFIG;
+  const N = ROWS * COLS;
+
+  const loaderEl = document.getElementById('loader');
+  const wrap = document.getElementById('fieldWrap');
+  const canvas = document.getElementById('field');
+  const ctx = canvas.getContext('2d');
+  const numeralEl = document.getElementById('numeral');
+  const numeralLabel = document.getElementById('numeralLabel');
+  const captionEl = document.getElementById('caption');
+  const captionLa = document.getElementById('captionLa');
+  const captionEn = document.getElementById('captionEn');
+  const barEl = document.getElementById('bar');
+  const barFill = document.getElementById('barFill');
+
+  const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let reduced = motionQuery.matches;
+
+  let W = 0, H = 0, dpr = 1, cell = 0, fx = 0, fy = 0;  // layout (CSS px)
+  let sprites = null;
+
+  let soldiers = [];
+  let innerDrawOrder = [];       // overhead plates, front rank first so rear plates overlap them
+  const rankLock = new Array(COLS).fill(-1);   // time each rank first locked (for the ripple)
+  const rankWave = new Array(COLS).fill(0);
+
+  let seed = 1;
+  let time = 0, lastNow = 0, loopStart = 0;
+  let target = 0;                // real progress, 0..1
+  let shown = 0;                 // smoothed progress that drives the drawing
+  let phase = 'forming';         // forming | hold | advance | done
+  let phaseT = 0;
+  let advanceOffset = 0;
+  let fade = 1;
+  let external = false;          // true once setProgress() has been called
+  let rafId = 0;
+  let staticDirty = true;
+
+  const demo = { active: false, wait: 0, rnd: mulberry32(99) };
+
+  /* ==========================================================================
+     Soldiers
+     ========================================================================== */
+  function buildSoldiers() {
+    const rnd = mulberry32(seed * 7919);
+    const mid = (ROWS - 1) / 2;
+    const lastCol = Math.max(1, COLS - 1);
+    soldiers = [];
+
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const top = r === 0, bottom = r === ROWS - 1, left = c === 0, right = c === COLS - 1;
+        const outer = top || bottom || left || right;
+        const dx = right ? 1 : left ? -1 : 0;
+        const dy = bottom ? 1 : top ? -1 : 0;
+        const rank = COLS - 1 - c;                       // 0 = front rank
+        const rowOff = mid ? Math.abs(r - mid) / mid : 0;
+        soldiers.push({
+          r, c, rank, rowOff, outer,
+          corner: dx !== 0 && dy !== 0,
+          facing: outer ? Math.atan2(dy, dx) : 0,         // outer ring faces outward, inner ranks face front
+          // Start in a loose column on the left; the front rank leads (rightmost).
+          su: CONFIG.COLUMN_X0 + (1 - rank / lastCol) * CONFIG.COLUMN_SPAN + (rnd() - 0.5) * 0.05,
+          sv: 0.5 + (r - mid) / Math.max(1, ROWS - 1) * CONFIG.COLUMN_HEIGHT + (rnd() - 0.5) * 0.09,
+          idleHeading: (rnd() - 0.5) * 0.25,
+          stepPhase: rnd() * Math.PI * 2,
+          sortKey: rank + rnd() * 0.9 + 0.3 * rowOff,
+          lockStart: (rank / lastCol) * 0.62 + rowOff * 0.08,  // ripple: front to back, center outward
+          lockedAt: -1,
+          x: 0, y: 0, h: 0, m: 0, L: 0, bob: 0, alpha: 0,
+        });
+      }
+    }
+
+    // March order: front ranks set off first, with a little shuffle.
+    [...soldiers].sort((a, b) => a.sortKey - b.sortKey).forEach((s, i) => {
+      s.marchStart = (N > 1 ? i / (N - 1) : 0) * (1 - CONFIG.MARCH_SPAN);
+      s.appear = i * CONFIG.APPEAR_STAGGER;
+    });
+
+    innerDrawOrder = soldiers.filter(s => !s.outer).sort((a, b) => a.rank - b.rank || a.r - b.r);
+    rankLock.fill(-1);
+  }
+
+  /* ==========================================================================
+     Sprites: pre-rendered once per resize so each frame is just drawImage calls
+     ========================================================================== */
+  function buildSprites() {
+    const k = cell * dpr;  // device pixels per cell
+
+    // Shield: red scutum, gold border, Jupiter's thunderbolts around a bronze boss.
+    const shield = (() => {
+      const Wd = POSE.roof.len * k, Hd = POSE.roof.wid * k, P = 2;
+      const cv = makeCanvas(Wd + 2 * P, Hd + 2 * P);
+      const g = cv.getContext('2d');
+      g.translate(P, P);
+      const bw = Math.max(1, Hd * 0.065), rad = Hd * 0.12;
+
+      const face = g.createLinearGradient(0, 0, 0, Hd);   // curved face catches light across its width
+      face.addColorStop(0, C.redDark);
+      face.addColorStop(0.35, C.redLight);
+      face.addColorStop(0.6, C.red);
+      face.addColorStop(1, C.redDark);
+      roundRectPath(g, bw / 2, bw / 2, Wd - bw, Hd - bw, rad);
+      g.fillStyle = face;
+      g.fill();
+      g.lineWidth = bw;
+      g.strokeStyle = C.gold;
+      g.stroke();
+
+      roundRectPath(g, bw * 2.2, bw * 2.2, Wd - bw * 4.4, Hd - bw * 4.4, rad * 0.6);
+      g.globalAlpha = 0.55;
+      g.lineWidth = Math.max(0.75, bw * 0.35);
+      g.strokeStyle = C.goldLight;
+      g.stroke();
+      g.globalAlpha = 1;
+
+      const cx = Wd / 2, cy = Hd / 2;
+      g.strokeStyle = C.gold;
+      g.lineCap = 'round';
+      g.lineJoin = 'miter';
+      g.lineWidth = Math.max(1, Hd * 0.05);
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {                       // four zigzag bolts
+          g.beginPath();
+          g.moveTo(cx + sx * Wd * 0.1, cy + sy * Hd * 0.05);
+          g.lineTo(cx + sx * Wd * 0.2, cy + sy * Hd * 0.22);
+          g.lineTo(cx + sx * Wd * 0.26, cy + sy * Hd * 0.11);
+          g.lineTo(cx + sx * Wd * 0.38, cy + sy * Hd * 0.31);
+          g.stroke();
+        }
+      }
+      g.lineWidth = Math.max(1, Hd * 0.035);
+      g.beginPath();                                      // straight bolt along the axis
+      g.moveTo(cx - Wd * 0.4, cy); g.lineTo(cx + Wd * 0.4, cy);
+      g.stroke();
+
+      const br = Hd * 0.15;
+      const boss = g.createRadialGradient(cx - br * 0.35, cy - br * 0.35, br * 0.1, cx, cy, br);
+      boss.addColorStop(0, C.goldLight);
+      boss.addColorStop(0.55, C.bronze);
+      boss.addColorStop(1, C.bronzeDark);
+      g.beginPath();
+      g.arc(cx, cy, br, 0, Math.PI * 2);
+      g.fillStyle = boss;
+      g.fill();
+      g.lineWidth = Math.max(0.75, Hd * 0.02);
+      g.strokeStyle = C.bronzeDark;
+      g.stroke();
+      return { img: cv, W: Wd, H: Hd, P };
+    })();
+
+    // Soft drop shadow matching the shield outline.
+    const shadow = (() => {
+      const Wd = POSE.roof.len * k, Hd = POSE.roof.wid * k;
+      const blur = Math.max(2, k * 0.07), P = Math.ceil(blur * 2.5);
+      const cv = makeCanvas(Wd + 2 * P, Hd + 2 * P);
+      const g = cv.getContext('2d');
+      const off = cv.width + 20;                          // draw off canvas, keep only the shadow
+      g.shadowColor = 'rgba(52, 28, 10, 1)';
+      g.shadowBlur = blur;
+      g.shadowOffsetX = off;
+      roundRectPath(g, P - off, P, Wd, Hd, Hd * 0.12);
+      g.fillStyle = '#000';
+      g.fill();
+      return { img: cv, W: Wd, H: Hd, P };
+    })();
+
+    // Legionary from above, facing +x: cloak, segmented armor, bronze helmet with crest, pilum.
+    const soldier = (() => {
+      const box = 1.5 * k, P = Math.ceil(k * 0.15);
+      const cv = makeCanvas(box + 2 * P, box + 2 * P);
+      const g = cv.getContext('2d');
+      g.translate(cv.width / 2, cv.height / 2);
+      g.scale(k, k);                                      // draw in cell units from here
+
+      g.strokeStyle = C.bronzeDark;                       // pilum on the right side
+      g.lineWidth = 0.03;
+      g.beginPath(); g.moveTo(-0.42, 0.3); g.lineTo(0.6, 0.3); g.stroke();
+      g.fillStyle = C.bronzeDark;
+      g.beginPath(); g.moveTo(0.72, 0.3); g.lineTo(0.58, 0.26); g.lineTo(0.58, 0.34); g.closePath(); g.fill();
+
+      g.save();                                           // cloak and shoulders, casting a soft shadow
+      g.shadowColor = 'rgba(52, 28, 10, 0.4)';
+      g.shadowBlur = k * 0.08;
+      g.shadowOffsetX = k * 0.05;
+      g.shadowOffsetY = k * 0.07;
+      g.fillStyle = C.redDark;
+      g.beginPath(); g.ellipse(-0.04, 0, 0.21, 0.34, 0, 0, Math.PI * 2); g.fill();
+      g.restore();
+
+      g.fillStyle = C.bronze;                             // lorica segmentata
+      g.beginPath(); g.ellipse(0, 0, 0.15, 0.28, 0, 0, Math.PI * 2); g.fill();
+      g.save();
+      g.clip();
+      g.strokeStyle = C.bronzeDark;
+      g.lineWidth = 0.022;
+      for (const x of [-0.1, -0.04, 0.02, 0.08]) { g.beginPath(); g.moveTo(x, -0.3); g.lineTo(x, 0.3); g.stroke(); }
+      g.restore();
+
+      const helm = g.createRadialGradient(-0.02, -0.04, 0.02, 0.03, 0, 0.15);
+      helm.addColorStop(0, C.goldLight);
+      helm.addColorStop(0.6, C.bronze);
+      helm.addColorStop(1, C.bronzeDark);
+      g.fillStyle = helm;
+      g.beginPath(); g.arc(0.03, 0, 0.14, 0, Math.PI * 2); g.fill();
+
+      g.fillStyle = C.red;                                // horsehair crest, front to back
+      g.beginPath(); g.ellipse(0.02, 0, 0.16, 0.035, 0, 0, Math.PI * 2); g.fill();
+      return { img: cv, W: box, H: box, P };
+    })();
+
+    sprites = { shield, shadow, soldier };
+  }
+
+  // Draw a sprite centered at (cx, cy) with its content box sized w x h (CSS px).
+  function drawSprite(sp, cx, cy, w, h) {
+    const kx = w / sp.W, ky = h / sp.H;
+    ctx.drawImage(sp.img, cx - w / 2 - sp.P * kx, cy - h / 2 - sp.P * ky, w + 2 * sp.P * kx, h + 2 * sp.P * ky);
+  }
+
+  /* ==========================================================================
+     Layout
+     ========================================================================== */
+  function resize() {
+    const width = Math.round(wrap.getBoundingClientRect().width);
+    if (!width || width === W) return;
+    W = width;
+    H = Math.round(W * (W < 520 ? CONFIG.ASPECT_NARROW : CONFIG.ASPECT));
+    dpr = Math.min(CONFIG.DPR_MAX, window.devicePixelRatio || 1);
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.height = H + 'px';
+    cell = Math.min((W * CONFIG.FORMATION_WIDTH) / COLS, (H * CONFIG.FORMATION_HEIGHT) / ROWS);
+    fx = W * CONFIG.FORMATION_X - (COLS * cell) / 2;
+    fy = H / 2 - (ROWS * cell) / 2;
+    buildSprites();
+    staticDirty = true;
+  }
+
+  /* ==========================================================================
+     Simulation
+     ========================================================================== */
+  function updateDemo(dt) {
+    if (!demo.active || external || phase !== 'forming' || target >= 1) return;
+    demo.wait -= dt;
+    if (demo.wait > 0) return;
+    target = Math.min(1, target + 0.02 + demo.rnd() * 0.08);   // bursty, like a real download
+    demo.wait = demo.rnd() < 0.12 ? 0.7 + demo.rnd() * 0.5 : 0.15 + demo.rnd() * 0.4;
+  }
+
+  function updateShown(dt) {
+    if (reduced) { shown = target; return; }
+    const diff = target - shown;
+    if (Math.abs(diff) < 0.0005) { shown = target; return; }
+    const eased = Math.abs(diff) * (1 - Math.exp(-CONFIG.SMOOTHING * dt));
+    const step = Math.min(CONFIG.MAX_RATE * dt, Math.max(CONFIG.MIN_RATE * dt, eased), Math.abs(diff));
+    shown += Math.sign(diff) * step;
+  }
+
+  // Positions, headings and lock state for every soldier at progress p.
+  function computeState(p, still) {
+    const local = p / CONFIG.MARCH_END;
+    const q = (p - CONFIG.LOCK_START) / (CONFIG.LOCK_END - CONFIG.LOCK_START);
+    const advancing = phase === 'advance' && !still;
+
+    for (const s of soldiers) {
+      s.m = clamp01((local - s.marchStart) / CONFIG.MARCH_SPAN);
+      s.L = s.m < 1 ? 0 : clamp01((q - s.lockStart) / CONFIG.LOCK_SPAN);
+
+      if (s.L >= 1) {
+        if (s.lockedAt < 0) {
+          s.lockedAt = time;
+          if (rankLock[s.rank] < 0) rankLock[s.rank] = time;
+        }
+      } else {
+        s.lockedAt = -1;
+      }
+
+      const sx = s.su * W, sy = s.sv * H;
+      const tx = fx + (s.c + 0.5) * cell, ty = fy + (s.r + 0.5) * cell;
+      const e = easeInOutCubic(s.m);
+      s.x = lerp(sx, tx, e) + (still ? 0 : advanceOffset);
+      s.y = lerp(sy, ty, e);
+
+      // Turn toward the destination as they set off, then to their post as they arrive.
+      const moveA = Math.atan2(ty - sy, tx - sx);
+      let h = lerpAngle(s.idleHeading, moveA, smoothstep(0, 0.12, s.m));
+      s.h = lerpAngle(h, s.facing, smoothstep(0.72, 1, s.m));
+
+      const walking = !still && ((s.m > 0 && s.m < 1) || advancing);
+      s.bob = walking ? Math.sin(time * CONFIG.STEP_RATE + (advancing ? -s.rank * 0.9 : s.stepPhase)) : 0;
+      s.alpha = still ? 1 : clamp01((time - loopStart - s.appear) / 0.35);
+    }
+
+    // Ripple: each rank that locks sends a damped wave back through the formation.
+    for (let j = 0; j < COLS; j++) {
+      let w = 0;
+      if (!still) {
+        for (let k = 0; k < COLS; k++) {
+          const t0 = rankLock[k];
+          if (t0 < 0) continue;
+          const d = time - t0 - Math.abs(j - k) * 0.08;
+          if (d > 0 && d < 1.6) w += Math.exp(-3.2 * d) * Math.sin(d * 13);
+        }
+      }
+      rankWave[j] = w;
+    }
+  }
+
+  function updatePhase(dt) {
+    phaseT += dt;
+    if (phase === 'forming') {
+      if (shown >= 1 && soldiers.every(s => s.L >= 1)) {
+        setPhase('hold');
+        emit('testudo:ready', 'onReady');
+      }
+    } else if (phase === 'hold') {
+      if (reduced) {
+        if (external && phaseT >= CONFIG.HOLD) finish();
+        else if (!external && phaseT >= CONFIG.REDUCED_PAUSE) restart();
+      } else if (phaseT >= CONFIG.HOLD) {
+        setPhase('advance');
+      }
+    } else if (phase === 'advance') {
+      const a = clamp01(phaseT / CONFIG.ADVANCE);
+      advanceOffset = CONFIG.ADVANCE_DIST * W * Math.pow(a, 1.35);   // slow start, steady pace
+      fade = 1 - clamp01((phaseT - (CONFIG.ADVANCE - CONFIG.FADE)) / CONFIG.FADE);
+      if (a >= 1) external ? finish() : restart();
+    }
+  }
+
+  function setPhase(p) { phase = p; phaseT = 0; }
+
+  function finish() {
+    setPhase('done');
+    emit('testudo:complete', 'onComplete');
+    cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
+
+  function restart() {
+    seed++;
+    buildSoldiers();
+    shown = 0;
+    target = 0;
+    advanceOffset = 0;
+    fade = 1;
+    loopStart = time;
+    setPhase('forming');
+    staticDirty = true;
+    if (!external) { demo.active = true; demo.wait = 0.3; }
+  }
+
+  function emit(name, callbackName) {
+    window.dispatchEvent(new CustomEvent(name));
+    const cb = api[callbackName];
+    if (typeof cb === 'function') {
+      try { cb(); } catch (err) { console.error(err); }
+    }
+  }
+
+  /* ==========================================================================
+     Drawing
+     ========================================================================== */
+  function drawShield(s, px, py, k, baseAlpha, still) {
+    const from = POSE.carry;
+    const to = s.outer ? (s.corner ? POSE.wallCorner : POSE.wall) : POSE.roof;
+    const e = easeInOutCubic(s.L);
+    const ox = lerp(from.ox, to.ox, e), oy = lerp(from.oy, to.oy, e);
+
+    // Inner shields swell as they are lifted overhead, then settle into place.
+    let scale = k * (s.outer ? 1 : 1 + 0.16 * Math.sin(Math.PI * e));
+    let glint = 0;
+    if (!still) {
+      if (s.lockedAt >= 0) {
+        const d = time - s.lockedAt;
+        scale *= 1 + 0.07 * Math.exp(-5 * d) * Math.sin(d * 16);
+        glint = 0.85 * Math.exp(-4 * d);
+      }
+      scale *= 1 + 0.04 * rankWave[s.rank];
+      if (phase === 'advance') scale *= 1 + 0.015 * Math.sin(time * CONFIG.STEP_RATE * 0.5 - s.rank * 0.8);
+    }
+
+    const w = lerp(from.len, to.len, e) * cell * scale;
+    const h = lerp(from.wid, to.wid, e) * cell * scale;
+    const ang = s.h + lerp(from.rot, to.rot, e);
+    const cos = Math.cos(s.h), sin = Math.sin(s.h);
+    const cx = s.x + px + (cos * ox - sin * oy) * cell;
+    const cy = s.y + py + (sin * ox + cos * oy) * cell;
+
+    // Shadow falls down and right in world space; raised shields cast it farther.
+    const lift = (s.outer ? 0.05 : 0.05 + 0.08 * e) * cell;
+    ctx.save();
+    ctx.translate(cx + lift * 0.8, cy + lift);
+    ctx.rotate(ang);
+    ctx.globalAlpha = baseAlpha * 0.36;
+    drawSprite(sprites.shadow, 0, 0, w, h);
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(ang);
+    ctx.globalAlpha = baseAlpha;
+    drawSprite(sprites.shield, 0, 0, w, h);
+    if (glint > 0.02) {                                   // gold flash as the shield locks
+      ctx.globalAlpha = baseAlpha * glint;
+      ctx.lineWidth = Math.max(1, cell * 0.05);
+      ctx.strokeStyle = C.goldLight;
+      roundRectPath(ctx, -w / 2, -h / 2, w, h, h * 0.12);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function draw(still) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    if (!sprites) return;
+    const spriteSize = 1.5 * cell;
+
+    // Pass 1: bodies, carried shields and the outward facing wall.
+    for (const s of soldiers) {
+      if (s.alpha <= 0) continue;
+      const a = fade * s.alpha;
+      const sway = s.bob * 0.025 * cell;
+      const px = -Math.sin(s.h) * sway, py = Math.cos(s.h) * sway;
+      const k = (0.75 + 0.25 * easeOutCubic(s.alpha)) * (1 + 0.02 * Math.abs(s.bob));
+
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.translate(s.x + px, s.y + py);
+      ctx.rotate(s.h);
+      drawSprite(sprites.soldier, 0, 0, spriteSize * k, spriteSize * k);
+      ctx.restore();
+
+      if (s.outer || s.L === 0) drawShield(s, px, py, k, a, still);
+      s._px = px; s._py = py; s._k = k;
+    }
+
+    // Pass 2: overhead plates, front rank first, so each rank overlaps the one ahead like scales.
+    for (const s of innerDrawOrder) {
+      if (s.L > 0 && s.alpha > 0) drawShield(s, s._px, s._py, s._k, fade * s.alpha, still);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ==========================================================================
+     Readout: Roman numerals, captions, progress bar
+     ========================================================================== */
+  let lastPct = -1, captionWanted = 0, captionTimer = 0;
+
+  function updateUI() {
+    const pct = shown >= 1 ? 100 : Math.floor(shown * 100);
+    if (pct !== lastPct) {
+      lastPct = pct;
+      numeralEl.textContent = toRoman(pct);
+      numeralLabel.textContent = `per centum · ${pct}`;
+      loaderEl.setAttribute('aria-valuenow', String(pct));
+      loaderEl.setAttribute('aria-valuetext', `${pct} percent`);
+      barFill.style.width = pct + '%';
+    }
+
+    let idx;
+    if (phase === 'hold') idx = 4;
+    else if (phase === 'advance' || phase === 'done') idx = reduced ? 4 : 5;
+    else if (shown < 0.3) idx = 0;
+    else if (shown < CONFIG.MARCH_END) idx = 1;
+    else if (shown < 0.8) idx = 2;
+    else idx = 3;
+    setCaption(idx);
+  }
+
+  function setCaption(i) {
+    if (i === captionWanted) return;
+    captionWanted = i;
+    const apply = () => {
+      captionLa.textContent = CAPTIONS[captionWanted][0];
+      captionEn.textContent = CAPTIONS[captionWanted][1];
+      captionEl.classList.remove('is-out');
+    };
+    clearTimeout(captionTimer);
+    if (reduced) { apply(); return; }
+    captionEl.classList.add('is-out');                    // crossfade out, swap, fade in
+    captionTimer = setTimeout(apply, 240);
+  }
+
+  /* ==========================================================================
+     Main loop
+     ========================================================================== */
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastNow) / 1000) * CONFIG.SPEED;
+    lastNow = now;
+    time += dt;
+
+    updateDemo(dt);
+    updateShown(dt);
+
+    if (reduced) {
+      // Static formation; only the numerals, captions and bar move.
+      computeState(shown, false);   // keeps lock state in step with progress for the phase check
+      if (staticDirty) {
+        computeState(1, true);
+        draw(true);
+        staticDirty = false;
+      }
+    } else {
+      computeState(shown, false);
+      draw(false);
+    }
+
+    updatePhase(dt);
+    updateUI();
+    rafId = requestAnimationFrame(frame);
+  }
+
+  function start() {
+    if (rafId) return;
+    lastNow = performance.now();
+    rafId = requestAnimationFrame(frame);
+  }
+
+  function applyMotionPreference() {
+    reduced = motionQuery.matches;
+    barEl.hidden = !reduced;
+    staticDirty = true;
+  }
+
+  /* ==========================================================================
+     Public API
+     ========================================================================== */
+  // Drive the formation from real loading progress (0 to 100).
+  // The first call switches off the demo loop.
+  function setProgress(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return;
+    if (!external) {
+      external = true;
+      demo.active = false;
+      clearTimeout(demoTimer);
+      if (phase !== 'forming') restart();
+    }
+    if (phase === 'done') return;
+    target = clamp01(n / 100);
+  }
+
+  const api = {
+    setProgress,
+    // Restart the formation from 0. Pass true to go back to demo mode.
+    reset(demoMode = false) {
+      external = !demoMode;
+      restart();
+      start();
+    },
+    get progress() { return Math.round(target * 100); },
+    get phase() { return phase; },
+    onReady: null,       // called when the formation is complete (100%)
+    onComplete: null,    // called when the finale ends (only when driven by setProgress)
+    config: CONFIG,
+  };
+  window.setProgress = setProgress;
+  window.TestudoLoader = api;
+
+  /* ==========================================================================
+     Boot
+     ========================================================================== */
+  applyMotionPreference();
+  if (motionQuery.addEventListener) motionQuery.addEventListener('change', applyMotionPreference);
+  buildSoldiers();
+  resize();
+  if ('ResizeObserver' in window) new ResizeObserver(resize).observe(wrap);
+  else window.addEventListener('resize', resize);
+
+  const demoTimer = setTimeout(() => {
+    if (!external) { demo.active = true; demo.wait = 0; }
+  }, CONFIG.DEMO_DELAY);
+
+  start();
+})();
+</script>
+</body>
+</html>
